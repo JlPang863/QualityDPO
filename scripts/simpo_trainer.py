@@ -14,13 +14,12 @@ import torch.nn.functional as F
 from accelerate import PartialState
 from datasets import Dataset
 from torch.utils.data import DataLoader
-from transformers import AutoModelForCausalLM, DataCollator, PreTrainedModel, PreTrainedTokenizerBase, Trainer
+from transformers import AutoModelForCausalLM, DataCollator, PreTrainedModel, PreTrainedTokenizerBase, Trainer, is_wandb_available
 from trl.trainer import CPOTrainer
 from transformers.trainer_callback import TrainerCallback
 from transformers.trainer_utils import EvalLoopOutput
-from transformers.utils import is_torch_fx_proxy
+from transformers.utils import is_torch_fx_proxy, is_peft_available
 
-from trl.import_utils import is_peft_available, is_wandb_available
 from simpo_config import SimPOConfig
 
 from dataclasses import dataclass
@@ -495,6 +494,7 @@ class SimPOTrainer(Trainer):
 
         return batch
 
+
     @staticmethod
     def concatenated_inputs(
         batch: Dict[str, Union[List, torch.LongTensor]],
@@ -759,7 +759,8 @@ class SimPOTrainer(Trainer):
         # If one uses `generate_during_eval` with peft + bf16, we need to explicitly call generate with
         # the torch cuda amp context manager as some hidden states are silently casted to full precision.
         generate_context_manager = nullcontext if not self._peft_has_been_casted_to_bf16 else torch.cuda.amp.autocast
-
+        # import pdb;pdb.set_trace()
+        
         with generate_context_manager():
             policy_output = model.generate(
                 input_ids=batch["prompt_input_ids"],

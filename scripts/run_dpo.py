@@ -20,6 +20,8 @@ import sys
 import torch
 import transformers
 from transformers import AutoModelForCausalLM, set_seed
+import os
+from accelerate import Accelerator
 
 from alignment import (
     DataArguments,
@@ -34,10 +36,11 @@ from alignment import (
     get_tokenizer,
     is_adapter_model,
 )
+
 from alignment.data import maybe_insert_system_message, is_openai_format
 from peft import PeftConfig, PeftModel
-from simpo_trainer import SimPOTrainer
-from simpo_config import SimPOConfig
+from dpo_trainer import DPOTrainer
+# from dpo_config import DPOConfig
 from dataclasses import dataclass, field
 from typing import Optional, Literal
 
@@ -45,10 +48,11 @@ logger = logging.getLogger(__name__)
 
 MISTRAL_CHAT_TEMPLATE = "{% if messages[0]['role'] == 'system' %}{% set loop_messages = messages[1:] %}{% set system_message = messages[0]['content'].strip() + '\n\n' %}{% else %}{% set loop_messages = messages %}{% set system_message = '' %}{% endif %}{% for message in loop_messages %}{% if loop.index0 == 0 %}{% set content = system_message + message['content'] %}{% else %}{% set content = message['content'] %}{% endif %}{% if message['role'] == 'user' %}{{ '[INST] ' + content.strip() + ' [/INST]' }}{% elif message['role'] == 'assistant' %}{{ ' '  + content.strip() + ' ' + eos_token }}{% endif %}{% endfor %}"
 
+
 def apply_chat_template(
     example,
     tokenizer,
-    task: Literal["sft", "generation", "rm", "simpo"],
+    task: Literal["sft", "generation", "rm", "dpo"],
     auto_insert_empty_system_msg: bool = True,
     change_template = None,
 ):
@@ -79,7 +83,7 @@ def apply_chat_template(
             raise ValueError(
                 f"Could not format example as dialogue for `rm` task! Require `[chosen, rejected]` keys but found {list(example.keys())}"
             )
-    elif task == "simpo":
+    elif task == "dpo":
         if all(k in example.keys() for k in ("chosen", "rejected")):
             if not is_openai_format(example["chosen"]) or not is_openai_format(example["rejected"]):
                 raise ValueError(
@@ -96,8 +100,8 @@ def apply_chat_template(
                 prompt_messages = example["chosen"][:-1]
                 # Now we extract the final turn to define chosen/rejected responses
                 chosen_messages = example["chosen"][-1:]
-                rejected_messages = example["rejected"][-1:]
-
+                rejected_messages = example["rejected"][-1:]            
+            
             # Prepend a system message if the first message is not a system message
             if auto_insert_empty_system_msg:
                 maybe_insert_system_message(prompt_messages, tokenizer)
@@ -109,6 +113,11 @@ def apply_chat_template(
             example["text_rejected"] = tokenizer.apply_chat_template(rejected_messages, tokenize=False)
             if example["text_rejected"].startswith(tokenizer.bos_token):
                 example["text_rejected"] = example["text_rejected"][len(tokenizer.bos_token):]
+            
+            # ####### assign docta scores ######
+            # example['chosen_docta_score'] = example['chosen_docta_score']
+            # example['rejected_docta_score'] = example['rejected_docta_score']
+
         else:
             raise ValueError(
                 f"Could not format example as dialogue for `{task}` task! Require either the "
@@ -122,9 +131,9 @@ def apply_chat_template(
 
 
 def main():
-    parser = H4ArgumentParser((ModelArguments, DataArguments, SimPOConfig))
+    parser = H4ArgumentParser((ModelArguments, DataArguments, DPOConfig))
     model_args, data_args, training_args = parser.parse()
-
+    # accelerator = Accelerator()
     #######
     # Setup
     #######
@@ -159,13 +168,17 @@ def main():
         data_args,
         splits=data_args.dataset_splits,
         configs=data_args.dataset_configs,
-        columns_to_keep=["messages", "chosen", "rejected", "prompt", "completion", "label"],
+        # columns_to_keep=["messages", "chosen", "rejected", "prompt", "completion", "label"],
+        columns_to_keep=["messages", "chosen", "rejected", "prompt", "completion", "chosen-rating", "rejected-rating", "label", "chosen_docta_score", "rejected_docta_score"],
+        # columns_to_keep=["messages", "chosen", "rejected", "prompt", "completion", "label", "chosen_docta_score", "rejected_docta_score"],
+
         # seed=training_args.seed,
     )
+    
     logger.info(
         f"Training on the following splits: {[split + ' : ' + str(dset.num_rows) for split, dset in raw_datasets.items()]}"
     )
-    column_names = list(raw_datasets["train"].features)
+    # column_names = list(raw_datasets["train"].features)
 
     #####################################
     # Load tokenizer and process datasets
@@ -173,10 +186,13 @@ def main():
     data_args.truncation_side = "left"  # Truncate from left to ensure we don't lose labels in final turn
     tokenizer = get_tokenizer(model_args, data_args)
 
+    #zephyr-7b-sft-full represents the sft version of mistral
+    # or "zephyr-7b-sft-full" in model_args.model_name_or_path.lower()
     if "mistral" in model_args.model_name_or_path.lower():
         change_template = "mistral"
     else:
         change_template = None
+    print(f"Current chat_template: {change_template}")
     #####################
     # Apply chat template
     #####################
@@ -184,20 +200,23 @@ def main():
         apply_chat_template,
         fn_kwargs={
             "tokenizer": tokenizer,
-            "task": "simpo",
+            "task": "dpo",
             "auto_insert_empty_system_msg": data_args.auto_insert_empty_system_msg,
             "change_template": change_template,
         },
         num_proc=data_args.preprocessing_num_workers,
-        remove_columns=column_names,
+        # remove_columns=[col for col in raw_datasets["train"].features if col not in ('chosen_docta_score', 'rejected_docta_score')],
+        remove_columns=['prompt', 'chosen', 'rejected'],
         desc="Formatting comparisons with prompt template",
     )
-
+    
     # Replace column names with what TRL needs, text_chosen -> chosen and text_rejected -> rejected
     for split in ["train", "test"]:
         raw_datasets[split] = raw_datasets[split].rename_columns(
             {"text_prompt": "prompt", "text_chosen": "chosen", "text_rejected": "rejected"}
         )
+        
+    # raw_datasets['train'][0]
 
     # Log a few random samples from the training set:
     for index in random.sample(range(len(raw_datasets["train"])), 3):
@@ -215,8 +234,13 @@ def main():
         revision=model_args.model_revision,
         trust_remote_code=model_args.trust_remote_code,
         torch_dtype=torch_dtype,
-        use_cache=False if training_args.gradient_checkpointing else True,
-        device_map=get_kbit_device_map() if quantization_config is not None else None,
+        use_cache=False if training_args.# The code `gradient_checkpointing` is a comment in Python.
+        # Comments are used to provide explanations or notes within
+        # the code for better understanding. In this case, it seems
+        # like the comment is indicating that the code below it is
+        # related to gradient checkpointing.
+        gradient_checkpointing else True,
+        # device_map=get_kbit_device_map() if quantization_config is not None else None,
         quantization_config=quantization_config,
         attn_implementation=model_args.attn_implementation,
     )
@@ -247,12 +271,22 @@ def main():
     #     model_kwargs = None
 
     training_args.model_init_kwargs = model_kwargs
+
+    #### additional check used for non-lora setting
+    if model_args.use_peft is True:
+        print("*** Use PEFT config to finetune ***")
+        ref_model = None
+        training_args.ref_model_kwargs = None
+    else:
+        ref_model = model
+        training_args.ref_model_init_kwargs = model_kwargs
     
     #########################
-    # Instantiate SimPO trainer
+    # Instantiate DPO trainer
     #########################
-    trainer = SimPOTrainer(
+    trainer = DPOTrainer(
         model=model,
+        ref_model=ref_model,
         args=training_args,
         train_dataset=raw_datasets["train"],
         eval_dataset=raw_datasets["test"],
@@ -264,6 +298,8 @@ def main():
     # Training loop
     ###############
     checkpoint = None
+    print(f"training_args: resume_from_checkpoint: {training_args.resume_from_checkpoint}")
+    
     if training_args.resume_from_checkpoint is not None:
         checkpoint = training_args.resume_from_checkpoint
     elif last_checkpoint is not None:
@@ -296,7 +332,17 @@ def main():
         # Restore k,v cache for fast inference
         trainer.model.config.use_cache = True
         trainer.model.config.save_pretrained(training_args.output_dir)
-
+        
+        #################
+        # Model Merge
+        #################
+        # if training_args.do_merge_model:
+        #     model_to_merge = PeftModel.from_pretrained(trainer.model.base_model, model_id=training_args.output_dir, device_map="auto")
+        #     merged_model = model_to_merge.merge_and_unload()
+        #     merged_model.save_pretrained(training_args.merged_model_output_dir)
+        #     merged_model.config.save_pretrained(training_args.merged_model_output_dir)
+        #     tokenizer.save_pretrained(training_args.merged_model_output_dir)
+    
     ##########
     # Evaluate
     ##########

@@ -212,11 +212,13 @@ def mix_datasets(
     fracs = []
     for (ds, frac), ds_config in zip(dataset_mixer.items(), configs):
         fracs.append(frac)
+        
         for split in splits:
             try:
                 # Try first if dataset on a Hub repo
                 dataset = load_dataset(ds, ds_config, split=split)
-            except DatasetGenerationError:
+            except Exception as e:
+                print(f"load local dataset from path: {ds}")
                 # If not, check local dataset
                 dataset = load_from_disk(os.path.join(ds, split))
 
