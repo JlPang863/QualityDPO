@@ -171,7 +171,7 @@ def main():
         # columns_to_keep=["messages", "chosen", "rejected", "prompt", "completion", "label"],
         columns_to_keep=["messages", "chosen", "rejected", "prompt", "completion", "chosen-rating", "rejected-rating", "label", "chosen_docta_score", "rejected_docta_score"],
         # columns_to_keep=["messages", "chosen", "rejected", "prompt", "completion", "label", "chosen_docta_score", "rejected_docta_score"],
-
+        shuffle=False,
         # seed=training_args.seed,
     )
     
@@ -299,7 +299,8 @@ def main():
     ###############
     checkpoint = None
     print(f"training_args: resume_from_checkpoint: {training_args.resume_from_checkpoint}")
-    
+    print(f"training_args: loss type: {training_args.loss_type}")
+
     if training_args.resume_from_checkpoint is not None:
         checkpoint = training_args.resume_from_checkpoint
     elif last_checkpoint is not None:

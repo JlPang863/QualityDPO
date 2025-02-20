@@ -1104,13 +1104,14 @@ class DPOTrainer(Trainer):
         # The beta is a temperature parameter for the DPO loss, typically something in the range of 0.1 to 0.5.
         # We ignore the reference model as beta -> 0. The label_smoothing parameter encodes our uncertainty about the
         # labels and calculates a conservative DPO loss.
+
         if self.loss_type == "sigmoid":
             losses = (
                 -F.logsigmoid(self.beta * logits) * (1 - self.label_smoothing)
                 - F.logsigmoid(-self.beta * logits) * self.label_smoothing
             )
             
-        if self.loss_type == "sigmoid-mean":
+        elif self.loss_type == "sigmoid-mean":
             # print("*** currently use the dpo loss under the mean logps ***")
             losses = (
                 -F.logsigmoid(self.beta * logits) * (1 - self.label_smoothing)

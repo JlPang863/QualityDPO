@@ -60,7 +60,7 @@ import argparse
 from datasets import load_dataset
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
-from alignment import (
+from trl import (
     ModelConfig,
     ScriptArguments,
     TrlParser,
