@@ -46,6 +46,7 @@ from transformers import (
     Trainer,
     is_wandb_available,
 )
+# from trainer import Trainer
 from transformers.data.data_collator import DataCollatorMixin
 from transformers.models.auto.modeling_auto import MODEL_FOR_VISION_2_SEQ_MAPPING_NAMES
 from transformers.trainer_callback import TrainerCallback
@@ -53,9 +54,9 @@ from transformers.trainer_utils import EvalLoopOutput, seed_worker
 from transformers.utils import is_peft_available, is_datasets_available
 from transformers.utils.deprecation import deprecate_kwarg
 
-from trl.data_utils import maybe_apply_chat_template, maybe_extract_prompt
+# from trl.data_utils import maybe_apply_chat_template, maybe_extract_prompt
 from trl.models import PreTrainedModelWrapper, create_reference_model
-from trl.trainer.callbacks import SyncRefModelCallback
+# from trl.trainer.callbacks import SyncRefModelCallback
 from dpo_config import DPOConfig, FDivergenceConstants, FDivergenceType
 import datasets
 
@@ -63,8 +64,8 @@ from trl.trainer.utils import (
     RunningMoments,
     cap_exp,
     disable_dropout_in_model,
-    generate_model_card,
-    get_comet_experiment_url,
+    # generate_model_card,
+    # get_comet_experiment_url,
     pad,
     pad_to_length,
     peft_module_casting_to_bf16,
@@ -100,7 +101,18 @@ if is_wandb_available():
 
 if is_deepspeed_available():
     import deepspeed
+    
+def maybe_apply_chat_template(example, tokenizer, is_chat_model=True):
+    if is_chat_model and "messages" in example:
+        return tokenizer.apply_chat_template(
+            example["messages"],
+            tokenize=False,
+            add_generation_prompt=True
+        )
+    return example.get("prompt", "")
 
+def maybe_extract_prompt(example):
+    return example.get("prompt", "")
 
 @dataclass
 class DataCollatorForPreference(DataCollatorMixin):
@@ -182,10 +194,14 @@ class DataCollatorForPreference(DataCollatorMixin):
             output['rejected_docta_score'] =  torch.tensor([example["rejected_docta_score"] for example in examples])
             
         ## add original LLM rating score
-        if "chosen-rating" in examples[0] or "rejected-rating" in examples[0]:
-            output['chosen-rating'] =  torch.tensor([example["chosen-rating"] for example in examples])
-            output['rejected-rating'] =  torch.tensor([example["rejected-rating"] for example in examples])
+        if "score_chosen" in examples[0] or "score_rejected" in examples[0]:
+            output['score_chosen'] =  torch.tensor([example["score_chosen"] for example in examples])
+            output['score_rejected'] =  torch.tensor([example["score_rejected"] for example in examples])
             
+        if "reward_score_chosen" in examples[0] or "reward_score_rejected" in examples[0]:
+            output['reward_score_chosen'] =  torch.tensor([example["reward_score_chosen"] for example in examples])
+            output['reward_score_rejected'] =  torch.tensor([example["reward_score_rejected"] for example in examples])
+
         return output
 
 
@@ -890,8 +906,38 @@ class DPOTrainer(Trainer):
             )
 
             self._precomputed_train_ref_log_probs = True
+            
+        
+        # return super().get_train_dataloader()
+        # ✅ 第二步：正式构建 DataLoader，不使用 shuffle
+        if self.train_dataset is None:
+            raise ValueError("Trainer: training requires a train_dataset.")
 
-        return super().get_train_dataloader()
+        train_dataset = self.train_dataset
+        data_collator = self.data_collator
+        if is_datasets_available() and isinstance(train_dataset, datasets.Dataset):
+            train_dataset = self._remove_unused_columns(train_dataset, description="training")
+        else:
+            data_collator = self._get_collator_with_removed_columns(data_collator, description="training")
+
+        dataloader_params = {
+            "batch_size": self._train_batch_size,
+            "collate_fn": data_collator,
+            "num_workers": self.args.dataloader_num_workers,
+            "pin_memory": self.args.dataloader_pin_memory,
+            "persistent_workers": self.args.dataloader_persistent_workers,
+            "shuffle": False,
+        }
+
+        if not isinstance(train_dataset, torch.utils.data.IterableDataset):
+            from torch.utils.data import SequentialSampler
+            print("✅ use the sequentialSampler here")  # ✅ 现在会正常打印
+            dataloader_params["sampler"] = SequentialSampler(train_dataset)
+            dataloader_params["drop_last"] = self.args.dataloader_drop_last
+            dataloader_params["worker_init_fn"] = seed_worker
+            dataloader_params["prefetch_factor"] = self.args.dataloader_prefetch_factor
+
+        return self.accelerator.prepare(DataLoader(train_dataset, **dataloader_params))
 
     def get_eval_dataloader(self, eval_dataset: Optional[Dataset] = None) -> DataLoader:
         """
@@ -1044,6 +1090,7 @@ class DPOTrainer(Trainer):
         rejected_logps: torch.FloatTensor,
         ref_chosen_logps: torch.FloatTensor,
         ref_rejected_logps: torch.FloatTensor,
+        mean_chosen_logps: torch.FloatTensor,
     ) -> tuple[torch.FloatTensor, torch.FloatTensor, torch.FloatTensor]:
         """
         Compute the DPO loss for a batch of policy and reference model log probabilities.
@@ -1123,7 +1170,17 @@ class DPOTrainer(Trainer):
                 -F.logsigmoid(self.beta * logits) * (1 - self.label_smoothing)
                 + F.logsigmoid(-self.beta * logits) * self.label_smoothing
             ) / (1 - 2 * self.label_smoothing)
-
+            
+        elif self.loss_type == "dpop":
+            penalty_scale = 5
+            penalty = torch.maximum(torch.zeros_like(chosen_logratios), -1 * chosen_logratios)
+            logits = logits - penalty_scale * penalty  # 惩罚负置信度 pair
+    
+            losses = (
+                -F.logsigmoid(self.beta * logits) * (1 - self.label_smoothing)
+                - F.logsigmoid(-self.beta * logits) * self.label_smoothing
+            )
+            
         elif self.loss_type == "noisy-tolerant": ## ours
             ### TODO: need to finished; sample-level soft label
             score_threshold = 0.1
@@ -1172,8 +1229,8 @@ class DPOTrainer(Trainer):
             # print(f"batch: {batch}")
             # print(f"logits: {logits.shape}")
             rating_score_threshold = 0.5 
-            chosen_ratings =  torch.Tensor(batch['chosen-rating']).to(logits.device) if 'chosen-rating' in batch.keys() else  torch.ones_like(logits).to(logits.device)
-            rejected_ratings =  torch.Tensor(batch['rejected-rating']).to(logits.device) if 'rejected-rating' in batch.keys() else  torch.zeros_like(logits).to(logits.device)
+            chosen_ratings =  torch.Tensor(batch['score_chosen']).to(logits.device) if 'score_chosen' in batch.keys() else  torch.ones_like(logits).to(logits.device)
+            rejected_ratings =  torch.Tensor(batch['score_rejected']).to(logits.device) if 'score_rejected' in batch.keys() else  torch.zeros_like(logits).to(logits.device)
             ratings_diff = chosen_ratings - rejected_ratings
             sel_labels = (ratings_diff < rating_score_threshold).int()  
             
@@ -1237,8 +1294,8 @@ class DPOTrainer(Trainer):
         elif self.loss_type == "noisy-tolerant-4-2": ## ours
             ### TODO: need to finished; sample-level soft label
             rating_score_threshold = 0.5 
-            chosen_ratings =  torch.Tensor(batch['chosen-rating']).to(logits.device) if 'chosen-rating' in batch.keys() else  torch.ones_like(logits).to(logits.device)
-            rejected_ratings =  torch.Tensor(batch['rejected-rating']).to(logits.device) if 'rejected-rating' in batch.keys() else  torch.zeros_like(logits).to(logits.device)
+            chosen_ratings =  torch.Tensor(batch['score_chosen']).to(logits.device) if 'score_chosen' in batch.keys() else  torch.ones_like(logits).to(logits.device)
+            rejected_ratings =  torch.Tensor(batch['score_rejected']).to(logits.device) if 'score_rejected' in batch.keys() else  torch.zeros_like(logits).to(logits.device)
             ratings_diff = chosen_ratings - rejected_ratings
             sel_labels = (ratings_diff < rating_score_threshold).int()  
             
@@ -1249,7 +1306,209 @@ class DPOTrainer(Trainer):
             weighted_rejected_ratings = (1 + normalized_rejected_ratings ) / 2
 
             losses = -F.logsigmoid(self.beta * logits) * weighted_chosen_ratings * (1 - self.label_smoothing * sel_labels) - F.logsigmoid(-self.beta * logits) * weighted_rejected_ratings * self.label_smoothing * sel_labels
+        
+        elif self.loss_type == "noisy-tolerant-4-3": ## ours
+            ### TODO: need to finished; sample-level soft label
+            chosen_ratings =  torch.Tensor(batch['score_chosen']).to(logits.device) if 'score_chosen' in batch.keys() else  torch.ones_like(logits).to(logits.device)
+            rejected_ratings =  torch.Tensor(batch['score_rejected']).to(logits.device) if 'score_rejected' in batch.keys() else  torch.zeros_like(logits).to(logits.device)
+            score_diff = chosen_ratings - rejected_ratings
+            tau = 1.0
+            score_weight = torch.sigmoid(score_diff / tau)  # [B], soft weighting
 
+            losses = -F.logsigmoid(self.beta * logits) * score_weight - F.logsigmoid(-self.beta * logits) * (1-score_weight)
+
+        elif self.loss_type == "noisy-tolerant-4-4": ## ours
+            ### TODO: need to finished; sample-level soft label
+            rating_score_threshold = 0.5 
+            chosen_ratings =  torch.Tensor(batch['score_chosen']).to(logits.device) if 'score_chosen' in batch.keys() else  torch.ones_like(logits).to(logits.device)
+            rejected_ratings =  torch.Tensor(batch['score_rejected']).to(logits.device) if 'score_rejected' in batch.keys() else  torch.zeros_like(logits).to(logits.device)
+            ratings_diff = chosen_ratings - rejected_ratings
+            sel_labels = (ratings_diff <= rating_score_threshold).int()  
+            
+            normalized_chosen_ratings = (chosen_ratings - 1) / 9 ## rating score: max 10.0 min 1.0
+            normalized_rejected_ratings = (rejected_ratings -1) / 9
+                        
+            weighted_chosen_ratings = (1 + normalized_chosen_ratings ) / 2
+            weighted_rejected_ratings = (1 + normalized_rejected_ratings ) / 2
+
+            losses = -F.logsigmoid(self.beta * logits) * weighted_chosen_ratings * (1 - self.label_smoothing * sel_labels) - F.logsigmoid(-self.beta * logits) * weighted_rejected_ratings * self.label_smoothing * sel_labels
+        
+        elif self.loss_type == "noisy-tolerant-4-5": ## ours
+            ### TODO: need to finished; sample-level soft label
+            rating_score_threshold = 1
+            chosen_ratings =  torch.Tensor(batch['score_chosen']).to(logits.device) if 'score_chosen' in batch.keys() else  torch.ones_like(logits).to(logits.device)
+            rejected_ratings =  torch.Tensor(batch['score_rejected']).to(logits.device) if 'score_rejected' in batch.keys() else  torch.zeros_like(logits).to(logits.device)
+            ratings_diff = chosen_ratings - rejected_ratings
+            sel_labels = (ratings_diff <= rating_score_threshold).int()  
+            
+            normalized_chosen_ratings = (chosen_ratings - 1) / 9 ## rating score: max 10.0 min 1.0
+            normalized_rejected_ratings = (rejected_ratings -1) / 9
+                        
+            weighted_chosen_ratings = (1 + normalized_chosen_ratings ) / 2
+            weighted_rejected_ratings = (1 + normalized_rejected_ratings ) / 2
+
+            losses = -F.logsigmoid(self.beta * logits) * weighted_chosen_ratings * (1 - self.label_smoothing * sel_labels) - F.logsigmoid(-self.beta * logits) * weighted_rejected_ratings * self.label_smoothing * sel_labels
+        
+        
+        elif self.loss_type == "noisy-tolerant-4-6": ## ours
+            ### TODO: need to finished; sample-level soft label
+            rating_score_threshold = 0.5
+            chosen_ratings =  torch.Tensor(batch['score_chosen']).to(logits.device) if 'score_chosen' in batch.keys() else  torch.ones_like(logits).to(logits.device)
+            rejected_ratings =  torch.Tensor(batch['score_rejected']).to(logits.device) if 'score_rejected' in batch.keys() else  torch.zeros_like(logits).to(logits.device)
+            ratings_diff = chosen_ratings - rejected_ratings
+            sel_labels = (ratings_diff < rating_score_threshold).int()  
+            
+            sft_loss = -mean_chosen_logps
+            dpo_losses = (
+                -F.logsigmoid(self.beta * logits) * (1 - self.label_smoothing)
+                - F.logsigmoid(-self.beta * logits) * self.label_smoothing
+            )
+            # losses = -F.logsigmoid(self.beta * logits) * (1 - self.label_smoothing * sel_labels) - F.logsigmoid(-self.beta * logits) * weighted_rejected_ratings * self.label_smoothing * sel_labels
+            
+            losses = sel_labels * sft_loss + (1 - sel_labels) * dpo_losses
+            # print("###################")
+            # # print(f"score_chosen: {chosen_ratings} --- score_rejected:{rejected_ratings}")
+            # # print(f"score_diff: {ratings_diff}")
+            # print(sel_labels)
+            # print(f"sft loss: {sft_loss}")
+            # print(f"dpo loss: {dpo_losses}")
+            # print("###################")
+        elif self.loss_type == "noisy-tolerant-4-6-threshold1": ## ours
+            ### TODO: need to finished; sample-level soft label
+            rating_score_threshold = 1
+            chosen_ratings =  torch.Tensor(batch['score_chosen']).to(logits.device) if 'score_chosen' in batch.keys() else  torch.ones_like(logits).to(logits.device)
+            rejected_ratings =  torch.Tensor(batch['score_rejected']).to(logits.device) if 'score_rejected' in batch.keys() else  torch.zeros_like(logits).to(logits.device)
+            ratings_diff = chosen_ratings - rejected_ratings
+            sel_labels = (ratings_diff < rating_score_threshold).int()  
+            
+            sft_loss = -mean_chosen_logps
+            dpo_losses = (
+                -F.logsigmoid(self.beta * logits) * (1 - self.label_smoothing)
+                - F.logsigmoid(-self.beta * logits) * self.label_smoothing
+            )
+            # losses = -F.logsigmoid(self.beta * logits) * (1 - self.label_smoothing * sel_labels) - F.logsigmoid(-self.beta * logits) * weighted_rejected_ratings * self.label_smoothing * sel_labels
+            
+            losses = sel_labels * sft_loss + (1 - sel_labels) * dpo_losses
+            # print("###################")
+            # # print(f"score_chosen: {chosen_ratings} --- score_rejected:{rejected_ratings}")
+            # # print(f"score_diff: {ratings_diff}")
+            # print(sel_labels)
+            # print(f"sft loss: {sft_loss}")
+            # print(f"dpo loss: {dpo_losses}")
+            # print("###################")
+            
+        elif self.loss_type == "noisy-tolerant-4-6-threshold2": ## ours
+            ### TODO: need to finished; sample-level soft label
+            rating_score_threshold = 1.5
+            chosen_ratings =  torch.Tensor(batch['score_chosen']).to(logits.device) if 'score_chosen' in batch.keys() else  torch.ones_like(logits).to(logits.device)
+            rejected_ratings =  torch.Tensor(batch['score_rejected']).to(logits.device) if 'score_rejected' in batch.keys() else  torch.zeros_like(logits).to(logits.device)
+            ratings_diff = chosen_ratings - rejected_ratings
+            sel_labels = (ratings_diff < rating_score_threshold).int()  
+            
+            sft_loss = -mean_chosen_logps
+            dpo_losses = (
+                -F.logsigmoid(self.beta * logits) * (1 - self.label_smoothing)
+                - F.logsigmoid(-self.beta * logits) * self.label_smoothing
+            )
+            # losses = -F.logsigmoid(self.beta * logits) * (1 - self.label_smoothing * sel_labels) - F.logsigmoid(-self.beta * logits) * weighted_rejected_ratings * self.label_smoothing * sel_labels
+            
+            losses = sel_labels * sft_loss + (1 - sel_labels) * dpo_losses
+            # print("###################")
+            # # print(f"score_chosen: {chosen_ratings} --- score_rejected:{rejected_ratings}")
+            # # print(f"score_diff: {ratings_diff}")
+            # print(sel_labels)
+            # print(f"sft loss: {sft_loss}")
+            # print(f"dpo loss: {dpo_losses}")
+            # print("###################")
+
+        elif self.loss_type == "noisy-tolerant-4-6-llama": ## ours
+            ### TODO: need to finished; sample-level soft label
+            rating_score_threshold = 0.7491280496
+            chosen_ratings =  torch.Tensor(batch['score_chosen']).to(logits.device) if 'score_chosen' in batch.keys() else  torch.ones_like(logits).to(logits.device)
+            rejected_ratings =  torch.Tensor(batch['score_rejected']).to(logits.device) if 'score_rejected' in batch.keys() else  torch.zeros_like(logits).to(logits.device)
+            ratings_diff = chosen_ratings - rejected_ratings
+            sel_labels = (ratings_diff >= rating_score_threshold).int()  
+            
+            sft_loss = -mean_chosen_logps
+            dpo_losses = (
+                -F.logsigmoid(self.beta * logits) * (1 - self.label_smoothing)
+                - F.logsigmoid(-self.beta * logits) * self.label_smoothing
+            )
+            # losses = -F.logsigmoid(self.beta * logits) * (1 - self.label_smoothing * sel_labels) - F.logsigmoid(-self.beta * logits) * weighted_rejected_ratings * self.label_smoothing * sel_labels
+            
+            losses = sel_labels * sft_loss + (1 - sel_labels) * dpo_losses
+            # print("###################")
+            # # print(f"score_chosen: {chosen_ratings} --- score_rejected:{rejected_ratings}")
+            # # print(f"score_diff: {ratings_diff}")
+            # print(sel_labels)
+            # print(f"sft loss: {sft_loss}")
+            # print(f"dpo loss: {dpo_losses}")
+            # print("###################")
+
+        elif self.loss_type == "noisy-tolerant-4-6-agrilla": ## ours
+            ### TODO: need to finished; sample-level soft label
+            rating_score_threshold = 0.5
+            chosen_ratings =  torch.Tensor(batch['score_chosen']).to(logits.device) if 'score_chosen' in batch.keys() else  torch.ones_like(logits).to(logits.device)
+            rejected_ratings =  torch.Tensor(batch['score_rejected']).to(logits.device) if 'score_rejected' in batch.keys() else  torch.zeros_like(logits).to(logits.device)
+            ratings_diff = chosen_ratings - rejected_ratings
+            sel_labels = (ratings_diff <= rating_score_threshold).int()  
+            
+            sft_loss = -mean_chosen_logps
+            dpo_losses = (
+                -F.logsigmoid(self.beta * logits) * (1 - self.label_smoothing)
+                - F.logsigmoid(-self.beta * logits) * self.label_smoothing
+            )
+            # losses = -F.logsigmoid(self.beta * logits) * (1 - self.label_smoothing * sel_labels) - F.logsigmoid(-self.beta * logits) * weighted_rejected_ratings * self.label_smoothing * sel_labels
+            
+            losses = sel_labels * sft_loss + (1 - sel_labels) * dpo_losses
+            # print("###################")
+            # # print(f"score_chosen: {chosen_ratings} --- score_rejected:{rejected_ratings}")
+            # # print(f"score_diff: {ratings_diff}")
+            # print(sel_labels)
+            # print(f"sft loss: {sft_loss}")
+            # print(f"dpo loss: {dpo_losses}")
+            # print("###################")
+
+        elif self.loss_type == "noisy-tolerant-4-7": ## ours
+            ### TODO: need to finished; sample-level soft label
+            rating_score_threshold = 0.5
+            chosen_ratings =  torch.Tensor(batch['score_chosen']).to(logits.device) if 'score_chosen' in batch.keys() else  torch.ones_like(logits).to(logits.device)
+            rejected_ratings =  torch.Tensor(batch['score_rejected']).to(logits.device) if 'score_rejected' in batch.keys() else  torch.zeros_like(logits).to(logits.device)
+            ratings_diff = chosen_ratings - rejected_ratings
+            sel_labels = (ratings_diff < rating_score_threshold).int()  
+            
+            normalized_chosen_ratings = (chosen_ratings - 1) / 9 ## rating score: max 10.0 min 1.0
+            normalized_rejected_ratings = (rejected_ratings -1) / 9
+            
+            weighted_chosen_ratings = (1 + normalized_chosen_ratings ) / 2
+            weighted_rejected_ratings = (1 + normalized_rejected_ratings ) / 2
+            
+            dpo_losses = (-F.logsigmoid(self.beta * logits) * weighted_chosen_ratings * (1 - self.label_smoothing) - F.logsigmoid(-self.beta * logits) * weighted_rejected_ratings * self.label_smoothing)
+        
+            sft_loss = -mean_chosen_logps
+            # dpo_losses = (
+            #     -F.logsigmoid(self.beta * logits) * (1 - self.label_smoothing)
+            #     - F.logsigmoid(-self.beta * logits) * self.label_smoothing
+            # )
+            dpo_losses = (-F.logsigmoid(self.beta * logits) * weighted_chosen_ratings * (1 - self.label_smoothing) - F.logsigmoid(-self.beta * logits) * weighted_rejected_ratings * self.label_smoothing)
+            
+            losses = sel_labels * sft_loss + (1 - sel_labels) * dpo_losses
+            # print("###################")
+            # print(sel_labels)
+            # print(sft_loss)
+            # print(dpo_losses)
+            # print("###################")
+        elif self.loss_type == "noisy-tolerant-4-8": ## ours
+            ### TODO: need to finished; sample-level soft label
+            chosen_ratings =  torch.Tensor(batch['reward_score_chosen']).to(logits.device) if 'reward_score_chosen' in batch.keys() else  torch.ones_like(logits).to(logits.device)
+            rejected_ratings =  torch.Tensor(batch['reward_score_rejected']).to(logits.device) if 'reward_score_rejected' in batch.keys() else  torch.zeros_like(logits).to(logits.device)
+            score_diff = chosen_ratings - rejected_ratings
+            tau = 1.0
+            score_weight = torch.sigmoid(score_diff / tau)  # [B], soft weighting
+
+            losses = -F.logsigmoid(self.beta * logits) * score_weight - F.logsigmoid(-self.beta * logits) * (1-score_weight)
+
+            
         elif self.loss_type == "noisy-tolerant-5": ## ours
             ### TODO: need to finished; sample-level soft label
             score_threshold = 0.1
@@ -1299,11 +1558,59 @@ class DPOTrainer(Trainer):
 
         elif self.loss_type == "hinge":
             losses = torch.relu(1 - self.beta * logits)
+            
+        elif self.loss_type == "simpo":
+            self.simpo_gamma = 1
+            gamma_logratios = self.simpo_gamma / self.beta
+            logits = logits - gamma_logratios
+            # This reduces to Equation 3 from the CPO paper when label_smoothing -> 0.
+            losses = (
+                -F.logsigmoid(self.beta * logits) * (1 - self.label_smoothing)
+                - F.logsigmoid(-self.beta * logits) * self.label_smoothing
+            )
+        elif self.loss_type == "simpo-sft":
+            ### TODO: need to finished; sample-level soft label
+            rating_score_threshold = 0.5
+            chosen_ratings =  torch.Tensor(batch['score_chosen']).to(logits.device) if 'score_chosen' in batch.keys() else  torch.ones_like(logits).to(logits.device)
+            rejected_ratings =  torch.Tensor(batch['score_rejected']).to(logits.device) if 'score_rejected' in batch.keys() else  torch.zeros_like(logits).to(logits.device)
+            ratings_diff = chosen_ratings - rejected_ratings
+            sel_labels = (ratings_diff < rating_score_threshold).int()  
+            
+            sft_losses = -mean_chosen_logps
+            self.gamma_beta_ratio = 0.5 # for llama-3-8b
+            
+            logits = logits - self.gamma_beta_ratio
+            # This reduces to Equation 3 from the CPO paper when label_smoothing -> 0.
+            simpo_losses = (
+                -F.logsigmoid(self.beta * logits) * (1 - self.label_smoothing)
+                - F.logsigmoid(-self.beta * logits) * self.label_smoothing
+            )
 
+            losses = sel_labels * sft_losses + (1 - sel_labels) * simpo_losses
+            
+            
+            
         elif self.loss_type == "ipo":
             # eqn (17) of the paper where beta is the regularization parameter for the IPO loss, denoted by tau in the paper.
             losses = (logits - 1 / (2 * self.beta)) ** 2
-
+            
+        elif self.loss_type == "ipo-sft":
+            # eqn (17) of the paper where beta is the regularization parameter for the IPO loss, denoted by tau in the paper.
+            losses = (logits - 1 / (2 * self.beta)) ** 2
+            ### TODO: need to finished; sample-level soft label
+            rating_score_threshold = 0.5
+            chosen_ratings =  torch.Tensor(batch['score_chosen']).to(logits.device) if 'score_chosen' in batch.keys() else  torch.ones_like(logits).to(logits.device)
+            rejected_ratings =  torch.Tensor(batch['score_rejected']).to(logits.device) if 'score_rejected' in batch.keys() else  torch.zeros_like(logits).to(logits.device)
+            ratings_diff = chosen_ratings - rejected_ratings
+            sel_labels = (ratings_diff < rating_score_threshold).int()  
+            
+            sft_losses = -mean_chosen_logps
+            ipo_losses = (logits - 1 / (2 * self.beta)) ** 2
+            # losses = -F.logsigmoid(self.beta * logits) * (1 - self.label_smoothing * sel_labels) - F.logsigmoid(-self.beta * logits) * weighted_rejected_ratings * self.label_smoothing * sel_labels
+            
+            losses = sel_labels * sft_losses + (1 - sel_labels) * ipo_losses
+            
+            
         elif self.loss_type == "bco_pair":
             chosen_logratios = chosen_logps - ref_chosen_logps
             rejected_logratios = rejected_logps - ref_rejected_logps
@@ -1499,7 +1806,7 @@ class DPOTrainer(Trainer):
         per_token_logps = torch.gather(logits.log_softmax(-1), dim=2, index=labels.unsqueeze(2)).squeeze(2)
         per_token_logps[~loss_mask] = 0
         all_logps = per_token_logps.sum(-1)
-
+        
         output = {}
 
         if self.use_weighting:
@@ -1530,9 +1837,13 @@ class DPOTrainer(Trainer):
             all_logps = all_logps / loss_mask.sum(-1)
             
         output["chosen_logps"] = all_logps[:num_examples]
+
         output["rejected_logps"] = all_logps[num_examples:]
         output["mean_chosen_logits"] = logits[:num_examples][loss_mask[:num_examples]].mean()
         output["mean_rejected_logits"] = logits[num_examples:][loss_mask[num_examples:]].mean()
+        
+        all_logps_temp =  all_logps / loss_mask.sum(-1)
+        output["mean_chosen_logps"] = all_logps_temp[:num_examples]
 
         if self.aux_loss_enabled:
             output["aux_loss"] = outputs.aux_loss
@@ -1547,7 +1858,10 @@ class DPOTrainer(Trainer):
     ):
         """Compute the DPO loss and other metrics for the given batch of inputs for train or test."""
         metrics = {}
-
+        # print("*******************************")
+        # print(batch['score_chosen'])
+        # print(batch['score_rejected'])
+        # print("*******************************")
         model_output = self.concatenated_forward(model, batch)
 
         # if ref_chosen_logps and ref_rejected_logps in batch use them, otherwise use the reference model
@@ -1558,7 +1872,7 @@ class DPOTrainer(Trainer):
             ref_chosen_logps, ref_rejected_logps = self.compute_ref_log_probs(batch)
 
         losses, chosen_rewards, rejected_rewards = self.dpo_loss(
-            batch, model_output["chosen_logps"], model_output["rejected_logps"], ref_chosen_logps, ref_rejected_logps
+            batch, model_output["chosen_logps"], model_output["rejected_logps"], ref_chosen_logps, ref_rejected_logps, model_output["mean_chosen_logps"]
         )
         reward_accuracies = (chosen_rewards > rejected_rewards).float()
 
@@ -1669,7 +1983,7 @@ class DPOTrainer(Trainer):
                 ignore_keys = []
 
         prediction_context_manager = amp.autocast("cuda") if self._peft_has_been_casted_to_bf16 else nullcontext()
-
+        
         with torch.no_grad(), prediction_context_manager:
             loss, metrics = self.get_batch_loss_metrics(model, inputs, train_eval="eval")
 

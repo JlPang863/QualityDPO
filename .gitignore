@@ -164,3 +164,7 @@ data/
 wandb/
 
 datasets/
+*.json
+*.parquet
+*.pdf
+SelectiveDPO

@@ -172,7 +172,10 @@ def main():
     #####################################
     data_args.truncation_side = "left"  # Truncate from left to ensure we don't lose labels in final turn
     tokenizer = get_tokenizer(model_args, data_args)
-
+    
+    if tokenizer.bos_token is None and 'qwen' in model_args.model_name_or_path.lower():
+        tokenizer.bos_token = "<|im_start|>"
+        
     if "mistral" in model_args.model_name_or_path.lower():
         change_template = "mistral"
     else:

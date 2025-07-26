@@ -12,8 +12,11 @@ root_path="/mnt/data1/jinlong/DPO-noisy-outputs"
 # loss_type_list=("ours4-clean" "ours4")
 # loss_type_list=("ours1-1" "ours1-1-clean")
 
-loss_type_list=("dpo-new1")
+# loss_type_list=("dpo-new1")
+
 base_model="llama-3-8b"
+
+# LOSS_TYPES=("dpo-new1-sorted-llama-full" "dpo-new1-sorted-score-diff-full" "dpo-new1-sorted-llama-half"  "dpo-new1-sorted-score-diff-half") #"dpo-new1-sorted-llama-full" "dpo-new1-sorted-score-diff-full" "dpo-new1-sorted-llama-half"  "dpo-new1-sorted-score-diff-half"
 
 # base_model=llama-3-8b
 # loss_type_list=("dpo" "cdpo" "robust" "ours5")
@@ -27,7 +30,7 @@ base_model="llama-3-8b"
 # loss_type_list=("cdpo" "robust")
 
 
-for loss_type in "${loss_type_list[@]}"; do
+for loss_type in "${LOSS_TYPES[@]}"; do
 
     # base_model_name_or_path="${root_path}/${base_model}-sft"
     if [[ $base_model == "llama-3-8b" ]]; then

@@ -64,7 +64,14 @@ base_model="llama-3-8b"
 # LOSS_TYPES=("ours1-1-new1")
 # LOSS_TYPES=("dpo-clean" "ours-clean") #
 
-LOSS_TYPES=("dpo-random" "dpo-top" "dpo-bottom") #
+# LOSS_TYPES=("dpo-random" "dpo-top" "dpo-bottom") #
+
+
+# LOSS_TYPES=("dpo-random-identical-reverse" "dpo-random-identical") #
+LOSS_TYPES=("dpo-random-identical-reward-score-based-swap")
+
+# training_configs/random_subset/llama-3-8b-base-dpo-random-identical-reverse-lora.yaml
+
 
 
 for LOSS_TYPE in "${LOSS_TYPES[@]}"; do

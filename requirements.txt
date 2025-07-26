@@ -2,11 +2,12 @@
 # transformers
 # deepspeed==0.15.4
 # accelerate
-# trl
+# trl==0.15.0
 # huggingface-hub==0.24.7
 # wandb
 # peft==0.13.2
 # bitsandbytes==0.44.0
+# transformers==4.44.2
 
 absl-py==2.1.0
 accelerate==0.29.2

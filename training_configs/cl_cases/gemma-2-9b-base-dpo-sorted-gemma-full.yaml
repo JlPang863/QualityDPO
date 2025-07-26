@@ -1,0 +1,54 @@
+# Model arguments
+model_name_or_path: tanliboy/zephyr-gemma-2-9b-sft
+torch_dtype: bfloat16
+attn_implementation: eager
+
+# Data training arguments
+chat_template: "{{ bos_token }}{% if messages[0]['role'] == 'system' %}{% set system_message = messages[0]['content'] | trim + '\n\n' %}{% set messages = messages[1:] %}{% else %}{% set system_message = '' %}{% endif %}{% for message in messages %}{% if loop.index0 == 0 %}{% set content = system_message + message['content'] %}{% else %}{% set content = message['content'] %}{% endif %}{% if (message['role'] == 'assistant') %}{% set role = 'model' %}{% else %}{% set role = message['role'] %}{% endif %}{{ '<start_of_turn>' + role + '\n' + content | trim + '<end_of_turn>\n' }}{% endfor %}{% if add_generation_prompt %}{{'<start_of_turn>model\n'}}{% endif %}"
+dataset_mixer:
+  # HuggingFaceH4/ultrafeedback_binarized: 1.0
+  jlpang888/ultrafeedback_sorted_gemma_learning_order: 0.5
+
+dataset_splits:
+- train
+- test
+preprocessing_num_workers: 12
+
+# SimPOTrainer arguments
+
+# SimPOTrainer arguments
+bf16: true
+beta: 0.01
+label_smoothing: 0.0
+loss_type: sigmoid
+do_eval: true
+reference_free: false
+evaluation_strategy: steps
+eval_steps: 1000
+gradient_accumulation_steps: 4 #8
+per_device_train_batch_size: 5
+per_device_eval_batch_size: 5
+gradient_checkpointing: true
+gradient_checkpointing_kwargs:
+  use_reentrant: true
+hub_model_id: jlpang888/gemma-2-9b-base-dpo-sorted-gemma-full
+learning_rate: 8.0e-7
+log_level: info
+logging_steps: 5
+lr_scheduler_type: cosine
+max_length: 1024
+max_prompt_length: 512
+num_train_epochs: 1
+optim: adamw_torch
+output_dir: /mnt/data1/jinlong/CL_DPO_outputs/gemma-2-9b-base-dpo-sorted-gemma-full/
+# do_merge_model: true
+# merged_model_output_dir: /mnt/data1/jinlong/DPO-noisy-outputs/gemma-2-9b-dpo-merged/
+run_name: gemma-2-9b-base-dpo-sorted-gemma-full
+push_to_hub: false
+save_strategy: "steps"
+save_steps: 100000
+report_to:
+- wandb
+save_total_limit: 20
+seed: 42
+warmup_ratio: 0.1

@@ -234,6 +234,8 @@ def mix_datasets(
     if any(frac < 0 for frac in fracs):
         raise ValueError("Dataset fractions cannot be negative.")
 
+    print(f"*** Shuffle data: {shuffle} ***")
+
     if len(raw_train_datasets) > 0:
         train_subsets = []
         for dataset, frac in zip(raw_train_datasets, fracs):

@@ -25,7 +25,7 @@ from accelerate import Accelerator
 
 from alignment import (
     DataArguments,
-    DPOConfig,
+    # DPOConfig,
     H4ArgumentParser,
     ModelArguments,
     get_checkpoint,
@@ -40,9 +40,35 @@ from alignment import (
 from alignment.data import maybe_insert_system_message, is_openai_format
 from peft import PeftConfig, PeftModel
 from dpo_trainer import DPOTrainer
-# from dpo_config import DPOConfig
+from dpo_config import DPOConfig
 from dataclasses import dataclass, field
 from typing import Optional, Literal
+
+# from deepspeed.runtime.zero.config import ZeroStageEnum
+# # torch.serialization.add_safe_globals({"ZeroStageEnum": ZeroStageEnum})
+# from deepspeed.runtime.fp16.loss_scaler import LossScaler
+# from numpy.core.multiarray import _reconstruct  
+# torch.serialization.add_safe_globals([ZeroStageEnum,LossScaler,_reconstruct])
+
+# from deepspeed.runtime.zero.config import ZeroStageEnum
+# from deepspeed.runtime.fp16.loss_scaler import LossScaler
+# from numpy.core.multiarray import _reconstruct
+# import numpy as np
+
+# torch.serialization.add_safe_globals([
+#     ZeroStageEnum,
+#     LossScaler,
+#     _reconstruct,
+#     np.dtype,
+#     np.ndarray
+# ])
+
+# torch.serialization.add_safe_globals([
+#     np.dtype("float32"), np.dtype("float64"),
+#     np.dtype("int32"), np.dtype("int64"),
+#     np.dtype("uint8"), np.dtype("uint32"), np.dtype("bool_")
+# ])
+
 
 logger = logging.getLogger(__name__)
 
@@ -114,9 +140,6 @@ def apply_chat_template(
             if example["text_rejected"].startswith(tokenizer.bos_token):
                 example["text_rejected"] = example["text_rejected"][len(tokenizer.bos_token):]
             
-            # ####### assign docta scores ######
-            # example['chosen_docta_score'] = example['chosen_docta_score']
-            # example['rejected_docta_score'] = example['rejected_docta_score']
 
         else:
             raise ValueError(
@@ -169,7 +192,7 @@ def main():
         splits=data_args.dataset_splits,
         configs=data_args.dataset_configs,
         # columns_to_keep=["messages", "chosen", "rejected", "prompt", "completion", "label"],
-        columns_to_keep=["messages", "chosen", "rejected", "prompt", "completion", "chosen-rating", "rejected-rating", "label", "chosen_docta_score", "rejected_docta_score"],
+        columns_to_keep=["messages", "chosen", "rejected", "prompt", "completion", "score_chosen", "score_rejected", "label", "chosen_docta_score", "rejected_docta_score", "reward_score_chosen", "reward_score_rejected"],
         # columns_to_keep=["messages", "chosen", "rejected", "prompt", "completion", "label", "chosen_docta_score", "rejected_docta_score"],
         shuffle=False,
         # seed=training_args.seed,
@@ -185,7 +208,9 @@ def main():
     #####################################
     data_args.truncation_side = "left"  # Truncate from left to ensure we don't lose labels in final turn
     tokenizer = get_tokenizer(model_args, data_args)
-
+    if tokenizer.bos_token is None and 'qwen' in model_args.model_name_or_path.lower():
+        tokenizer.bos_token = "<|im_start|>"
+        
     #zephyr-7b-sft-full represents the sft version of mistral
     # or "zephyr-7b-sft-full" in model_args.model_name_or_path.lower()
     if "mistral" in model_args.model_name_or_path.lower():
@@ -215,9 +240,7 @@ def main():
         raw_datasets[split] = raw_datasets[split].rename_columns(
             {"text_prompt": "prompt", "text_chosen": "chosen", "text_rejected": "rejected"}
         )
-        
-    # raw_datasets['train'][0]
-
+    
     # Log a few random samples from the training set:
     for index in random.sample(range(len(raw_datasets["train"])), 3):
         logger.info(f"Prompt sample {index} of the raw training set:\n\n{raw_datasets['train'][index]['prompt']}")
@@ -274,7 +297,7 @@ def main():
 
     #### additional check used for non-lora setting
     if model_args.use_peft is True:
-        print("*** Use PEFT config to finetune ***")
+        print("*** Use PEFT config to finetune ***") 
         ref_model = None
         training_args.ref_model_kwargs = None
     else:
@@ -284,6 +307,11 @@ def main():
     #########################
     # Instantiate DPO trainer
     #########################
+    
+    is_iterable = isinstance(raw_datasets["train"], torch.utils.data.IterableDataset)
+    print("Is IterableDataset?", is_iterable)
+
+
     trainer = DPOTrainer(
         model=model,
         ref_model=ref_model,

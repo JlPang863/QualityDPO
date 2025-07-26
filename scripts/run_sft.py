@@ -117,6 +117,7 @@ def main():
         torch_dtype=torch_dtype,
         use_cache=False if training_args.gradient_checkpointing else True,
         device_map=get_kbit_device_map() if quantization_config is not None else None,
+        # device_map = 'auto',
         quantization_config=quantization_config,
     )
 

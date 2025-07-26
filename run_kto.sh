@@ -41,7 +41,7 @@ num_gpus=8
 # LOSS_TYPES=("ours-clean" "ours1-clean" "ours2-clean" "ours3-clean")
 # LOSS_TYPES=("dpo-clean" "cdpo-clean" "ipo-clean" "robust-clean" "spa-clean")
 
-# LOSS_TYPES=("ours6")
+LOSS_TYPES=("kto")
 base_model="llama-3-1b"
 
 ####### llama-3-8b-finetune ###
