@@ -57,7 +57,7 @@ num_gpus=8
 # LOSS_TYPES=("robust")
 # LOSS_TYPES=("dpo-new" "cdpo-new" "robust-new" "ours1-1") # 
 
-base_model="llama-3-8b"
+# base_model="llama-3-8b"
 # base_model="mistral-7b"
 # LOSS_TYPES=("cdpo-new1" "robust-new1" "ours1-1-new1") #"dpo-new1" "cdpo-new1" "robust-new1" "ours1-1-new1"
 # LOSS_TYPES=("ours5-new1")
@@ -80,27 +80,37 @@ LOSS_TYPES=(
 # "dpo-identical-pairs-low-quality-1000"
 # "ours4-4-identical-pairs-7387"
 # "ours4-4-sorted-identical-pairs-7387"
-"dpo-identical-pairs-7387-revised"
+# "dpo-identical-pairs-7387-revised"
+dpo-identical-pairs-high-quality-2000
+dpo-identical-pairs-low-quality-2000
 )
 
 
-for LOSS_TYPE in "${LOSS_TYPES[@]}"; do
 
-    training_configs="training_configs/rating_score_subset"
+BASE_MODELS=(
+    llama-3-8b
+    mistral-7b
+)
 
-    echo "*** Model train config file info: ${training_configs}/${base_model}-base-${LOSS_TYPE}.yaml! ***"
-    echo "*** Base model: ${base_model} ***"
 
-    ACCELERATE_LOG_LEVEL=info 
-    accelerate launch \
-        --num_processes $num_gpus \
-        --main_process_port 29510 \
-        --config_file accelerate_configs/deepspeed_zero3.yaml \
-        --mixed_precision bf16 \
-        scripts/run_dpo.py \
-        ${training_configs}/${base_model}-base-${LOSS_TYPE}.yaml 
-        
-done
+for BASE_MODEL in ${BASE_MODELS[@]}; do
+    for LOSS_TYPE in "${LOSS_TYPES[@]}"; do
 
+        training_configs="training_configs/rating_score_subset"
+
+        echo "*** Model train config file info: ${training_configs}/${BASE_MODEL}-base-${LOSS_TYPE}.yaml! ***"
+        echo "*** Base model: ${BASE_MODEL} ***"
+
+        ACCELERATE_LOG_LEVEL=info 
+        accelerate launch \
+            --num_processes $num_gpus \
+            --main_process_port 29510 \
+            --config_file accelerate_configs/deepspeed_zero3.yaml \
+            --mixed_precision bf16 \
+            scripts/run_dpo.py \
+            ${training_configs}/${BASE_MODEL}-base-${LOSS_TYPE}.yaml 
+            
+    done
+done 
 
 

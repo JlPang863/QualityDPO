@@ -51,7 +51,8 @@ LOSS_TYPES=(
     # dpo-sorted-mistral-full
     # dpo-sorted-mistral-new-base-full
     # ours4-6-sorted-score-diff-new-base-full-lr8
-    ours4-6-sorted-score-diff-new-base-full-lr5-replicate
+    # ours4-6-sorted-score-diff-new-base-full-lr5-replicate
+    ours4-6-sorted-score-diff-new-base-full-test
     ) 
 
 
