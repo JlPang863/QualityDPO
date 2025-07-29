@@ -16,12 +16,13 @@ batch_size = 8
 
 
 # -------------------------------
-# Preference 数据集封装
+# Preference 数据集封装，带 index
 # -------------------------------
 class PreferenceDataset(Dataset):
     def __init__(self, hf_dataset):
         self.chosen = [ex[-1]["content"] for ex in hf_dataset["chosen"]]
         self.rejected = [ex[-1]["content"] for ex in hf_dataset["rejected"]]
+        self.indices = list(range(len(self.chosen)))
 
     def __len__(self):
         return len(self.chosen)
@@ -30,6 +31,7 @@ class PreferenceDataset(Dataset):
         return {
             "chosen": self.chosen[idx],
             "rejected": self.rejected[idx],
+            "index": self.indices[idx],
         }
 
 
@@ -43,7 +45,7 @@ def compute_logps(model, tokenizer, texts, accelerator):
 
     with torch.no_grad():
         outputs = model(input_ids=input_ids, attention_mask=attention_mask)
-        logits = outputs.logits  # (B, T, V)
+        logits = outputs.logits
         log_probs = log_softmax(logits, dim=-1)
 
     shift_input_ids = input_ids[:, 1:]
@@ -65,17 +67,15 @@ def main():
 
     model = AutoModelForCausalLM.from_pretrained(model_name, torch_dtype=torch.bfloat16)
     model.eval()
-
-    # prepare model with accelerator
     model = accelerator.prepare(model)
 
-    # load dataset
     raw_dataset = load_dataset(dataset_name, split="train")
     dataset = PreferenceDataset(raw_dataset)
     dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=False)
     dataloader = accelerator.prepare(dataloader)
 
     all_losses = []
+    all_indices = []
 
     for batch in tqdm(dataloader, disable=not accelerator.is_local_main_process):
         chosen_logps = compute_logps(model, tokenizer, batch["chosen"], accelerator)
@@ -83,14 +83,23 @@ def main():
 
         logits_diff = beta * (chosen_logps - rejected_logps)
         losses = -logsigmoid(logits_diff)
-        all_losses.append(accelerator.gather(losses).cpu())  # gather from all devices
 
-    # 汇总
+        gathered_losses = accelerator.gather(losses).cpu()
+        gathered_indices = accelerator.gather(batch["index"]).cpu()
+
+        all_losses.append(gathered_losses)
+        all_indices.append(gathered_indices)
+
     if accelerator.is_main_process:
         all_losses = torch.cat(all_losses)
-        print("Mean DPO loss:", all_losses.mean().item())
-        print("Per-sample losses:", all_losses.tolist())
-        torch.save(all_losses, "llama3-ultrafeedback-armorm.pt")
+        all_indices = torch.cat(all_indices)
+
+        # 按 index 排序以恢复原顺序
+        sorted_losses = all_losses[all_indices.argsort()]
+
+        print("Mean DPO loss:", sorted_losses.mean().item())
+        print("Per-sample losses:", sorted_losses.tolist())
+        torch.save(sorted_losses, "llama3-ultrafeedback-armorm.pt")
 
 
 if __name__ == "__main__":
