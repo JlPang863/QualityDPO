@@ -28,8 +28,18 @@ base_model="llama-3-8b"
 
 # base_model=mistral-7b
 # loss_type_list=("cdpo" "robust")
-
-
+LOSS_TYPES=(
+    # mix-dpo-sorted-embedding-dist-1e06
+    # mix-dpo-sorted-embedding-dist-3e07
+    # mix-dpo-sorted-embedding-dist-5e07
+    # mix-dpo-sorted-embedding-dist-8e07
+    # mix-dpo-sorted-llama-loss-1e06
+    # mix-dpo-sorted-llama-loss-5e07
+    # mix-dpo-sorted-llama-loss-8e07
+    # mix-dpo-sorted-reward-1e06
+    # mix-dpo-sorted-reward-5e07
+    # mix-dpo-sorted-reward-8e07
+)
 for loss_type in "${LOSS_TYPES[@]}"; do
 
     # base_model_name_or_path="${root_path}/${base_model}-sft"

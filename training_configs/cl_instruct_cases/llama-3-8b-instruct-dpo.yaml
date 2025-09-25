@@ -54,7 +54,7 @@ max_length: 1024
 max_prompt_length: 512
 num_train_epochs: 1
 optim: adamw_torch
-output_dir: /mnt/data1/jinlong/CL_DPO_outputs/llama-3-8b-instruct-dpo/
+output_dir: ./CL_DPO_outputs/llama-3-8b-instruct-dpo/
 # do_merge_model: true
 # merged_model_output_dir: /mnt/data1/jinlong/DPO-noisy-outputs/llama-3-8b-dpo-merged/
 run_name: llama-3-8b-instruct-dpo

@@ -95,7 +95,8 @@ LOSS_TYPES=(
     # dpo-sorted-embedding-distance-full
     # dpo-new1-sorted-llama-reverse-full
     # dpo-sorted-score-diff-full-revised-shuffle ##default 
-    ours4-6-sorted-score-diff-full
+    # ours4-6-sorted-score-diff-full
+    ours4-6-sorted-embedding-distance-full-new-1e6
     ) 
 
 for LOSS_TYPE in "${LOSS_TYPES[@]}"; do

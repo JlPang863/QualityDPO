@@ -25,8 +25,8 @@ lora_target_modules:
 dataset_mixer:
   # HuggingFaceH4/ultrafeedback_binarized: 1.0
   # /home/jlpang/QualityDPO/datasets/ultrafeedback: 1.0
-  jlpang888/ultrafeedback_sorted_mistral_learning_order: 0.5
-
+  # jlpang888/ultrafeedback_sorted_mistral_learning_order: 0.5
+  jlpang888/mistral-instruct-ultrafeedback_sorted_dpo_loss: 0.5
 
 dataset_splits:
 - train
@@ -47,7 +47,7 @@ per_device_eval_batch_size: 8
 gradient_checkpointing: true
 gradient_checkpointing_kwargs:
   use_reentrant: true
-hub_model_id: jlpang888/mistral-7b-instruct-selective-dpo
+hub_model_id: jlpang888/mistral-7b-instruct-selective-dpo-new
 learning_rate: 1.0e-6
 log_level: info
 logging_steps: 5
@@ -56,9 +56,9 @@ max_length: 1024
 max_prompt_length: 512
 num_train_epochs: 1
 optim: adamw_torch
-output_dir: /mnt/data1/jinlong/CL_DPO_outputs/mistral-7b-instruct-selective-dpo/
+output_dir: ./CL_DPO_outputs/mistral-7b-instruct-selective-dpo/
 run_name: mistral-7b-instruct-selective-dpo
-push_to_hub: false
+push_to_hub: True
 save_strategy: "steps"
 save_steps: 1000000
 report_to:

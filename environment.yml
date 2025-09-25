@@ -1,4 +1,4 @@
-name: simpo
+name: qualtydpo
 channels:
   - conda-forge
   - defaults

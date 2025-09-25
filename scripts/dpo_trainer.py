@@ -1164,7 +1164,22 @@ class DPOTrainer(Trainer):
                 -F.logsigmoid(self.beta * logits) * (1 - self.label_smoothing)
                 - F.logsigmoid(-self.beta * logits) * self.label_smoothing
             )
-            
+        elif self.loss_type == "Cal-DPO":
+            chosen_rewards = chosen_logratios
+            rejected_rewards = rejected_logratios
+
+            DPO_loss = -F.logsigmoid((chosen_rewards - rejected_rewards))
+            Cal_loss = F.mse_loss(chosen_rewards,
+                                  torch.tensor(1.0 / (2.0 * self.beta)).to(chosen_rewards)) + F.mse_loss(
+                rejected_rewards, torch.tensor(-1.0 / (2.0 * self.beta)).to(rejected_rewards))
+            losses = DPO_loss + 0.5*Cal_loss 
+
+        elif self.loss_type == "dpo-nll":
+            DPO_loss = -F.logsigmoid((chosen_logratios - rejected_logratios))
+            chosen_token_lengths = batch["prompt_attention_mask"].sum(dim=1)+ batch["chosen_attention_mask"].sum(dim=1)  # shape: (batch_size,)
+            NLL_loss = -1 * chosen_logps / chosen_token_lengths
+            losses = DPO_loss + 1 * NLL_loss 
+
         elif self.loss_type == "robust": ###baseline
             losses = (
                 -F.logsigmoid(self.beta * logits) * (1 - self.label_smoothing)
@@ -1373,6 +1388,138 @@ class DPOTrainer(Trainer):
             # print(f"sft loss: {sft_loss}")
             # print(f"dpo loss: {dpo_losses}")
             # print("###################")
+        
+        elif self.loss_type == "noisy-tolerant-4-6-instruct": ## ours
+            ### TODO: need to finished; sample-level soft label
+            rating_score_threshold = -0.5
+            chosen_ratings =  torch.Tensor(batch['score_chosen']).to(logits.device) if 'score_chosen' in batch.keys() else  torch.ones_like(logits).to(logits.device)
+            rejected_ratings =  torch.Tensor(batch['score_rejected']).to(logits.device) if 'score_rejected' in batch.keys() else  torch.zeros_like(logits).to(logits.device)
+            ratings_diff = chosen_ratings - rejected_ratings
+            sel_labels = (ratings_diff < rating_score_threshold).int()  
+            
+            sft_loss = -mean_chosen_logps
+            dpo_losses = (
+                -F.logsigmoid(self.beta * logits) * (1 - self.label_smoothing)
+                - F.logsigmoid(-self.beta * logits) * self.label_smoothing
+            )
+            # losses = -F.logsigmoid(self.beta * logits) * (1 - self.label_smoothing * sel_labels) - F.logsigmoid(-self.beta * logits) * weighted_rejected_ratings * self.label_smoothing * sel_labels
+            
+            losses = sel_labels * sft_loss + (1 - sel_labels) * dpo_losses
+            # print("###################")
+            # # print(f"score_chosen: {chosen_ratings} --- score_rejected:{rejected_ratings}")
+            # # print(f"score_diff: {ratings_diff}")
+            # print(sel_labels)
+            # print(f"sft loss: {sft_loss}")
+            # print(f"dpo loss: {dpo_losses}")
+            # print("###################")
+            #  
+        elif self.loss_type == "noisy-tolerant-4-6-mistral-rm": ## ours
+            ### TODO: need to finished; sample-level soft label
+            rating_score_threshold = 5.078502893447876
+            chosen_ratings =  torch.Tensor(batch['score_chosen']).to(logits.device) if 'score_chosen' in batch.keys() else  torch.ones_like(logits).to(logits.device)
+            rejected_ratings =  torch.Tensor(batch['score_rejected']).to(logits.device) if 'score_rejected' in batch.keys() else  torch.zeros_like(logits).to(logits.device)
+            ratings_diff = chosen_ratings - rejected_ratings
+            sel_labels = (ratings_diff < rating_score_threshold).int()  
+            
+            sft_loss = -mean_chosen_logps
+            dpo_losses = (
+                -F.logsigmoid(self.beta * logits) * (1 - self.label_smoothing)
+                - F.logsigmoid(-self.beta * logits) * self.label_smoothing
+            )
+            # losses = -F.logsigmoid(self.beta * logits) * (1 - self.label_smoothing * sel_labels) - F.logsigmoid(-self.beta * logits) * weighted_rejected_ratings * self.label_smoothing * sel_labels
+            
+            losses = sel_labels * sft_loss + (1 - sel_labels) * dpo_losses
+
+        elif self.loss_type == "noisy-tolerant-4-6-embedding-dist": ## ours
+            ### TODO: need to finished; sample-level soft label
+            embedding_threshold = 0.3899381757
+            chosen_ratings =  torch.Tensor(batch['score_chosen']).to(logits.device) if 'score_chosen' in batch.keys() else  torch.ones_like(logits).to(logits.device)
+            rejected_ratings =  torch.Tensor(batch['score_rejected']).to(logits.device) if 'score_rejected' in batch.keys() else  torch.zeros_like(logits).to(logits.device)
+            ratings_diff = chosen_ratings - rejected_ratings
+            sel_labels = (ratings_diff < embedding_threshold).int()  
+            
+            sft_loss = -mean_chosen_logps
+            dpo_losses = (
+                -F.logsigmoid(self.beta * logits) * (1 - self.label_smoothing)
+                - F.logsigmoid(-self.beta * logits) * self.label_smoothing
+            )
+            # losses = -F.logsigmoid(self.beta * logits) * (1 - self.label_smoothing * sel_labels) - F.logsigmoid(-self.beta * logits) * weighted_rejected_ratings * self.label_smoothing * sel_labels
+            
+            losses = sel_labels * sft_loss + (1 - sel_labels) * dpo_losses
+
+
+
+        elif self.loss_type == "noisy-tolerant-4-6-llama-rm": ## ours
+            ### TODO: need to finished; sample-level soft label
+            rating_score_threshold = 0.00634765625
+            chosen_ratings =  torch.Tensor(batch['score_chosen']).to(logits.device) if 'score_chosen' in batch.keys() else  torch.ones_like(logits).to(logits.device)
+            rejected_ratings =  torch.Tensor(batch['score_rejected']).to(logits.device) if 'score_rejected' in batch.keys() else  torch.zeros_like(logits).to(logits.device)
+            ratings_diff = chosen_ratings - rejected_ratings
+            sel_labels = (ratings_diff < rating_score_threshold).int()  
+            
+            sft_loss = -mean_chosen_logps
+            dpo_losses = (
+                -F.logsigmoid(self.beta * logits) * (1 - self.label_smoothing)
+                - F.logsigmoid(-self.beta * logits) * self.label_smoothing
+            )
+            # losses = -F.logsigmoid(self.beta * logits) * (1 - self.label_smoothing * sel_labels) - F.logsigmoid(-self.beta * logits) * weighted_rejected_ratings * self.label_smoothing * sel_labels
+            
+            losses = sel_labels * sft_loss + (1 - sel_labels) * dpo_losses
+
+        elif self.loss_type == "noisy-tolerant-4-6-mistral-dpo-loss": ## ours
+            ### TODO: need to finished; sample-level soft label
+            rating_score_threshold = 5.078502893447876
+            chosen_ratings =  torch.Tensor(batch['score_chosen']).to(logits.device) if 'score_chosen' in batch.keys() else  torch.ones_like(logits).to(logits.device)
+            rejected_ratings =  torch.Tensor(batch['score_rejected']).to(logits.device) if 'score_rejected' in batch.keys() else  torch.zeros_like(logits).to(logits.device)
+            ratings_diff = chosen_ratings - rejected_ratings
+            sel_labels = (ratings_diff > rating_score_threshold).int()  
+            
+            sft_loss = -mean_chosen_logps
+            dpo_losses = (
+                -F.logsigmoid(self.beta * logits) * (1 - self.label_smoothing)
+                - F.logsigmoid(-self.beta * logits) * self.label_smoothing
+            )
+            # losses = -F.logsigmoid(self.beta * logits) * (1 - self.label_smoothing * sel_labels) - F.logsigmoid(-self.beta * logits) * weighted_rejected_ratings * self.label_smoothing * sel_labels
+            
+            losses = sel_labels * sft_loss + (1 - sel_labels) * dpo_losses
+
+        elif self.loss_type == "noisy-tolerant-4-6-llama-dpo-loss": ## ours
+            ### TODO: need to finished; sample-level soft label
+            rating_score_threshold = 4.8125
+            chosen_ratings =  torch.Tensor(batch['score_chosen']).to(logits.device) if 'score_chosen' in batch.keys() else  torch.ones_like(logits).to(logits.device)
+            rejected_ratings =  torch.Tensor(batch['score_rejected']).to(logits.device) if 'score_rejected' in batch.keys() else  torch.zeros_like(logits).to(logits.device)
+            ratings_diff = chosen_ratings - rejected_ratings
+            sel_labels = (ratings_diff > rating_score_threshold).int()  
+            
+            sft_loss = -mean_chosen_logps
+            dpo_losses = (
+                -F.logsigmoid(self.beta * logits) * (1 - self.label_smoothing)
+                - F.logsigmoid(-self.beta * logits) * self.label_smoothing
+            )
+            # losses = -F.logsigmoid(self.beta * logits) * (1 - self.label_smoothing * sel_labels) - F.logsigmoid(-self.beta * logits) * weighted_rejected_ratings * self.label_smoothing * sel_labels
+            
+            losses = sel_labels * sft_loss + (1 - sel_labels) * dpo_losses
+
+        elif self.loss_type == "noisy-tolerant-4-6-reward-score": ## ours
+            ### TODO: need to finished; sample-level soft label
+            reward_score_threshold = -6.5625
+            chosen_ratings =  torch.Tensor(batch['score_chosen']).to(logits.device) if 'score_chosen' in batch.keys() else  torch.ones_like(logits).to(logits.device)
+            rejected_ratings =  torch.Tensor(batch['score_rejected']).to(logits.device) if 'score_rejected' in batch.keys() else  torch.zeros_like(logits).to(logits.device)
+            ratings_diff = chosen_ratings - rejected_ratings
+            sel_labels = (ratings_diff < reward_score_threshold).int()  
+            
+            sft_loss = -mean_chosen_logps
+            dpo_losses = (
+                -F.logsigmoid(self.beta * logits) * (1 - self.label_smoothing)
+                - F.logsigmoid(-self.beta * logits) * self.label_smoothing
+            )
+            # losses = -F.logsigmoid(self.beta * logits) * (1 - self.label_smoothing * sel_labels) - F.logsigmoid(-self.beta * logits) * weighted_rejected_ratings * self.label_smoothing * sel_labels
+            
+            losses = sel_labels * sft_loss + (1 - sel_labels) * dpo_losses
+
+
+
+
         elif self.loss_type == "noisy-tolerant-4-6-threshold1": ## ours
             ### TODO: need to finished; sample-level soft label
             rating_score_threshold = 1
@@ -1423,7 +1570,7 @@ class DPOTrainer(Trainer):
 
         elif self.loss_type == "noisy-tolerant-4-6-llama": ## ours
             ### TODO: need to finished; sample-level soft label
-            rating_score_threshold = 0.7491280496
+            rating_score_threshold = 0.7623013258
             chosen_ratings =  torch.Tensor(batch['score_chosen']).to(logits.device) if 'score_chosen' in batch.keys() else  torch.ones_like(logits).to(logits.device)
             rejected_ratings =  torch.Tensor(batch['score_rejected']).to(logits.device) if 'score_rejected' in batch.keys() else  torch.zeros_like(logits).to(logits.device)
             ratings_diff = chosen_ratings - rejected_ratings

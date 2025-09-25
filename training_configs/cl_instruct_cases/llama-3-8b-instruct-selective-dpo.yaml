@@ -25,11 +25,16 @@ dataset_mixer:
   # HuggingFaceH4/ultrafeedback_binarized: 1.0
   # /home/jlpang/QualityDPO/datasets/ultrafeedback: 1.0
   # argilla/ultrafeedback-binarized-preferences-cleaned: 0.01
-  jlpang888/ultrafeedback_sorted_llama_learning_order: 0.5
+  # jlpang888/ultrafeedback_sorted_llama_learning_order: 0.5
+  jlpang888/llama3-ultrafeedback-armorm_sorted_dpo_loss: 0.5 
+  # /home/azureuser/cloudfiles/code/Users/jinlong.pang/QualityDPO/datasets/llama3-ultrafeedback-armorm_sorted_dpo_loss: 0.01
 
 dataset_splits:
 - train
 - test
+
+
+
 preprocessing_num_workers: 12
 
 # Trainer arguments
@@ -47,7 +52,7 @@ per_device_eval_batch_size: 5
 gradient_checkpointing: true
 gradient_checkpointing_kwargs:
   use_reentrant: true
-hub_model_id: jlpang888/llama-3-8b-instruct-selective-dpo
+hub_model_id: jlpang888/llama-3-8b-instruct-selective-dpo-new
 learning_rate: 1.0e-6
 log_level: info
 logging_steps: 5
@@ -56,7 +61,7 @@ max_length: 1024
 max_prompt_length: 512
 num_train_epochs: 1
 optim: adamw_torch
-output_dir: /mnt/data1/jinlong/CL_DPO_outputs/llama-3-8b-instruct-selective-dpo/
+output_dir: ./CL_DPO_outputs/llama-3-8b-instruct-selective-dpo/
 # do_merge_model: true
 # merged_model_output_dir: /mnt/data1/jinlong/DPO-noisy-outputs/llama-3-8b-dpo-merged/
 run_name: llama-3-8b-instruct-selective-dpo

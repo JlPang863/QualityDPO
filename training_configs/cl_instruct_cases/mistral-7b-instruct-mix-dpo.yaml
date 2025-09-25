@@ -25,7 +25,8 @@ lora_target_modules:
 dataset_mixer:
   # HuggingFaceH4/ultrafeedback_binarized: 1.0
   # /home/jlpang/QualityDPO/datasets/ultrafeedback: 1.0
-  jlpang888/ultrafeedback_sorted_score_diff: 1.0
+  # jlpang888/ultrafeedback_sorted_score_diff: 1.0
+  jlpang888/mistral-instruct-ultrafeedback_sorted_rating_score: 1.0
 
 dataset_splits:
 - train
@@ -37,7 +38,7 @@ bf16: true
 beta: 0.01
 # gamma_beta_ratio: 0.8
 label_smoothing: 0.0
-loss_type: sigmoid ##dpo
+loss_type: noisy-tolerant-4-6-instruct ##dpo
 do_eval: false
 evaluation_strategy: steps
 eval_steps: 400
@@ -56,7 +57,7 @@ max_length: 1024
 max_prompt_length: 512
 num_train_epochs: 1
 optim: adamw_torch
-output_dir: /mnt/data1/jinlong/CL_DPO_outputs/mistral-7b-instruct-mix-dpo/
+output_dir: ./CL_DPO_outputs/mistral-7b-instruct-mix-dpo/
 run_name: mistral-7b-instruct-mix-dpo
 push_to_hub: false
 save_strategy: "steps"

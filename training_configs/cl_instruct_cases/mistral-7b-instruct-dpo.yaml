@@ -55,7 +55,7 @@ max_length: 1024
 max_prompt_length: 512
 num_train_epochs: 1
 optim: adamw_torch
-output_dir: /mnt/data1/jinlong/CL_DPO_outputs/mistral-7b-instruct-dpo/
+output_dir: ./CL_DPO_outputs/mistral-7b-instruct-dpo/
 run_name: mistral-7b-instruct-dpo
 push_to_hub: false
 save_strategy: "steps"

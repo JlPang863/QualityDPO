@@ -15,18 +15,28 @@ BASE_MODELS=(
 )
 
 LOSS_TYPES=(
-    dpo
+    # dpo
     # selective-dpo
-    mix-dpo
+    # mix-dpo
+    # mix-dpo-lr1
+    # mix-dpo-lr2
+    # mix-dpo-lr3
+    # mix-dpo-lr4
+    # cal-dpo
+    # dpo-nll
+    dpo-ches-0.5
+    dpo-ches-0.9
     ) 
 
+model_tag=base 
+# model_tag=instruct
 
 for LOSS_TYPE in "${LOSS_TYPES[@]}"; do
 
     for BASE_MODEL in "${BASE_MODELS[@]}"; do
         training_configs="training_configs/cl_instruct_cases"
 
-        echo "*** Model train config file info: ${training_configs}/${BASE_MODEL}-instruct-${LOSS_TYPE}.yaml! ***"
+        echo "*** Model train config file info: ${training_configs}/${BASE_MODEL}-${model_tag}-${LOSS_TYPE}.yaml! ***"
         echo "*** Base model: ${BASE_MODEL} ***"
         ACCELERATE_LOG_LEVEL=info 
         accelerate launch \
@@ -35,6 +45,6 @@ for LOSS_TYPE in "${LOSS_TYPES[@]}"; do
             --config_file accelerate_configs/deepspeed_zero3.yaml \
             --mixed_precision bf16 \
             scripts/run_dpo.py \
-            ${training_configs}/${BASE_MODEL}-instruct-${LOSS_TYPE}.yaml 
+            ${training_configs}/${BASE_MODEL}-${model_tag}-${LOSS_TYPE}.yaml 
     done 
 done

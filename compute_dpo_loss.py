@@ -2,105 +2,120 @@ import torch
 from transformers import AutoTokenizer, AutoModelForCausalLM
 from datasets import load_dataset
 from torch.nn.functional import log_softmax, logsigmoid
-from torch.utils.data import Dataset, DataLoader
+import tqdm
 from accelerate import Accelerator
-from tqdm import tqdm
+from accelerate.utils import gather_object
+import os
 
-# -------------------------------
-# 参数设定
-# -------------------------------
-model_name = "meta-llama/Meta-Llama-3-8B-Instruct"
-dataset_name = "princeton-nlp/llama3-ultrafeedback-armorm"
-beta = 0.1
-batch_size = 8
+accelerator = Accelerator()
 
 
-# -------------------------------
-# Preference 数据集封装，带 index
-# -------------------------------
-class PreferenceDataset(Dataset):
-    def __init__(self, hf_dataset):
-        self.chosen = [ex[-1]["content"] for ex in hf_dataset["chosen"]]
-        self.rejected = [ex[-1]["content"] for ex in hf_dataset["rejected"]]
-        self.indices = list(range(len(self.chosen)))
-
-    def __len__(self):
-        return len(self.chosen)
-
-    def __getitem__(self, idx):
-        return {
-            "chosen": self.chosen[idx],
-            "rejected": self.rejected[idx],
-            "index": self.indices[idx],
-        }
-
-
-# -------------------------------
-# log prob 计算函数
-# -------------------------------
-def compute_logps(model, tokenizer, texts, accelerator):
-    encodings = tokenizer(texts, return_tensors="pt", padding=True, truncation=True, max_length=2048)
-    input_ids = encodings["input_ids"].to(accelerator.device)
-    attention_mask = encodings["attention_mask"].to(accelerator.device)
-
-    with torch.no_grad():
-        outputs = model(input_ids=input_ids, attention_mask=attention_mask)
-        logits = outputs.logits
-        log_probs = log_softmax(logits, dim=-1)
-
-    shift_input_ids = input_ids[:, 1:]
-    shift_log_probs = log_probs[:, :-1, :]
-    shift_mask = attention_mask[:, 1:]
-
-    token_logprobs = torch.gather(shift_log_probs, dim=2, index=shift_input_ids.unsqueeze(-1)).squeeze(-1)
-    seq_logprobs = (token_logprobs * shift_mask).sum(dim=1)
-    return seq_logprobs
-
-
-# -------------------------------
-# 主函数
-# -------------------------------
 def main():
-    accelerator = Accelerator()
+
+    model_name = "princeton-nlp/Llama-3-Base-8B-SFT"
+    # model_name = "meta-llama/Meta-Llama-3-8B-Instruct"
+    dataset_name = "princeton-nlp/llama3-ultrafeedback-armorm"
+    
+    # model_name = "mistralai/Mistral-7B-Instruct-v0.2"
+    # dataset_name = "princeton-nlp/mistral-instruct-ultrafeedback"
+
+    beta = 0.1
+    batch_size = 8
+
+
+    # 1. 加载 tokenizer 和模型
     tokenizer = AutoTokenizer.from_pretrained(model_name, use_fast=True)
+    model = AutoModelForCausalLM.from_pretrained(
+        model_name,    
+        device_map={"": accelerator.process_index},
+        torch_dtype=torch.bfloat16,
+    )
+    model.eval()
     tokenizer.pad_token = tokenizer.eos_token
 
-    model = AutoModelForCausalLM.from_pretrained(model_name, torch_dtype=torch.bfloat16)
-    model.eval()
-    model = accelerator.prepare(model)
+    # 2. 加载偏好数据集（仅用前几个样本做演示）
+    # raw_dataset = load_dataset(dataset_name, split="train[:1000]")  # 用全部数据可改成 "train"
+    raw_dataset = load_dataset(dataset_name, split="train")  # 用全部数据可改成 "train"
 
-    raw_dataset = load_dataset(dataset_name, split="train")
-    dataset = PreferenceDataset(raw_dataset)
-    dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=False)
-    dataloader = accelerator.prepare(dataloader)
+    # 3. 定义 log probability 计算函数
+    def compute_logps(prompts, answers):
+        inputs = [prompt + answer for prompt, answer in zip(prompts, answers)]
 
-    all_losses = []
-    all_indices = []
+        # padding to longest
+        encodings = tokenizer(inputs, return_tensors="pt", padding=True, truncation=True)
+        prompt_lengths = [len(tokenizer(p, add_special_tokens=False)["input_ids"]) for p in prompts]
 
-    for batch in tqdm(dataloader, disable=not accelerator.is_local_main_process):
-        chosen_logps = compute_logps(model, tokenizer, batch["chosen"], accelerator)
-        rejected_logps = compute_logps(model, tokenizer, batch["rejected"], accelerator)
+        input_ids = encodings.input_ids.to('cuda')
+        attention_mask = encodings.attention_mask.to('cuda')
 
-        logits_diff = beta * (chosen_logps - rejected_logps)
-        losses = -logsigmoid(logits_diff)
+        with torch.no_grad():
+            outputs = model(input_ids=input_ids, attention_mask=attention_mask)
+            logits = outputs.logits  # shape: (B, T, V)
+            log_probs = log_softmax(logits, dim=-1)
 
-        gathered_losses = accelerator.gather(losses).cpu()
-        gathered_indices = accelerator.gather(batch["index"]).cpu()
+        # shift tokens and gather correct token logprobs
+        shift_input_ids = input_ids[:, 1:]
+        shift_log_probs = log_probs[:, :-1, :]
+        shift_mask = attention_mask[:, 1:]
 
-        all_losses.append(gathered_losses)
-        all_indices.append(gathered_indices)
+        # 获取对应 token 的 log probability
+        token_logprobs = torch.gather(shift_log_probs, dim=2, index=shift_input_ids.unsqueeze(-1)).squeeze(-1)
+        seq_logprobs = (token_logprobs * shift_mask).sum(dim=1)  # 按 mask 取 sum
+
+        for i in range(shift_mask.size(0)):
+            prompt_len = prompt_lengths[i]
+            assert prompt_len <= shift_mask.size(1), f"Prompt length {prompt_len} exceeds sequence length."
+            shift_mask[i, :prompt_len] = 0  # 忽略 prompt 部分 token
+
+        seq_logprobs = (token_logprobs * shift_mask).sum(dim=1)
+        return seq_logprobs
+    # 4. 批量计算 DPO loss
+
+
+    accelerator.wait_for_everyone()    
+
+    with accelerator.split_between_processes(raw_dataset) as subset:
+
+        results=dict(outputs=[])
+
+        for i in tqdm.tqdm(range(0, len(subset), batch_size), desc='handling'):
+            batch = subset[i:i + batch_size]
+            chosen_texts = [sample[-1]['content'] for sample in batch['chosen']]
+            rejected_texts = [sample[-1]['content'] for sample in batch['rejected']]
+            prompts = batch['prompt']
+
+
+            chosen_logps = compute_logps(prompts, chosen_texts)
+            rejected_logps = compute_logps(prompts, rejected_texts)
+
+            logits_diff = beta * (chosen_logps - rejected_logps)
+            losses = -logsigmoid(logits_diff)
+
+
+            results['outputs'].extend(losses)
+
+        results = [ results ]
+
+    results_gathered=gather_object(results)
 
     if accelerator.is_main_process:
-        all_losses = torch.cat(all_losses)
-        all_indices = torch.cat(all_indices)
 
-        # 按 index 排序以恢复原顺序
-        sorted_losses = all_losses[all_indices.argsort()]
+        final_losses = []
+        for losses in results_gathered:
+            final_losses.extend(losses['outputs'])
 
-        print("Mean DPO loss:", sorted_losses.mean().item())
-        print("Per-sample losses:", sorted_losses.tolist())
-        torch.save(sorted_losses, "llama3-ultrafeedback-armorm.pt")
+        assert len(final_losses) == len(raw_dataset), (
+            f"length mismatch: final_losses={len(final_losses)} vs raw_dataset={len(raw_dataset)}"
+        )
+
+        torch.save(final_losses, f"dpo_losses_{os.path.basename(dataset_name)}.pt")
+
+
 
 
 if __name__ == "__main__":
     main()
+
+
+
+#accelerate launch --multi-gpu compute_dpo_loss.py
