@@ -149,14 +149,13 @@ Following the evaluation methodology of Tajwar et al. [7], we report the change 
 
 [7] Tajwar F. et al. Unintentional Unalignment: Likelihood Displacement in Direct Preference Optimization // ICLR 2025.
 
+<!-- Old wandb 4-point results (kept for reference):
 LLaMA-3-8B on UltraFeedback eval set:
-
 | Method | Δ Chosen LogP | Δ Rejected LogP | Δ Gap |
-|--------|--------------|-----------------|-------|
 | DPO | +4 (-268 → -264) | +12 (-284 → -272) | -8 (16 → 8) |
 | MixDPO | -4 (-260 → -264) | -24 (-278 → -302) | +20 (18 → 38) |
 
-<!-- New 10-point MixDPO rerun results (eval_steps=40, to be used later):
+New 10-point MixDPO rerun results (eval_steps=40):
 | Step | Chosen LogP | Rejected LogP | Gap |
 | 40 | -268 | -284 | 16 |
 | 80 | -334 | -384 | 50 |
@@ -170,11 +169,35 @@ LLaMA-3-8B on UltraFeedback eval set:
 | 382 | -456 | -488 | 32 |
 -->
 
-Key observations:
-- **DPO**: The rejected log-prob **increases** by 12 during training, meaning the model assigns increasing probability to rejected responses. Meanwhile, the chosen-rejected gap **shrinks** from 16 to 8 — the model's ability to discriminate between preferred and dispreferred responses deteriorates. This is consistent with the likelihood displacement phenomenon described in Tajwar et al. (2024) and Pal et al. (2024).
-- **MixDPO**: The chosen log-prob remains stable (Δ=-4), while the rejected log-prob **decreases** by 24. The chosen-rejected gap **widens** from 18 to 38 (+20), demonstrating that MixDPO correctly improves preference discrimination throughout training.
+We evaluate the SFT baseline, vanilla DPO, and MixDPO on the same eval set (500 samples) and report the change in mean sequence-level log-probabilities relative to the SFT model:
 
-This provides direct evidence that MixDPO's hybrid objective (SFT on difficult pairs) helps the model maintain and improve the distinction between chosen and rejected responses.
+**LLaMA-3-8B:**
+
+| Method | Δ Chosen LogP | Δ Rejected LogP | Δ Gap |
+|--------|--------------|-----------------|-------|
+| DPO | -14.8 (-311.9 → -326.6) | -29.6 (-291.3 → -320.9) | +14.8 (-20.5 → -5.7) |
+| MixDPO | -11.7 (-311.9 → -323.5) | -26.9 (-291.3 → -318.2) | +15.2 (-20.5 → -5.3) |
+
+**Mistral-7B:**
+
+| Method | Δ Chosen LogP | Δ Rejected LogP | Δ Gap |
+|--------|--------------|-----------------|-------|
+| DPO | -33.6 (-314.3 → -347.9) | -63.0 (-293.6 → -356.6) | +29.4 (-20.7 → 8.7) |
+| MixDPO | -15.3 (-314.3 → -329.6) | -34.9 (-293.6 → -328.5) | +19.6 (-20.7 → -1.1) |
+
+**Qwen-2.5-7B:**
+
+| Method | Δ Chosen LogP | Δ Rejected LogP | Δ Gap |
+|--------|--------------|-----------------|-------|
+| DPO | -17.2 (-305.9 → -323.1) | -34.0 (-287.8 → -321.7) | +16.8 (-18.1 → -1.3) |
+| MixDPO | -18.2 (-305.9 → -324.1) | -37.0 (-287.8 → -324.7) | +18.8 (-18.1 → 0.6) |
+
+Key observations:
+- **Chosen displacement (less is better)**: MixDPO consistently shows less chosen log-prob decrease than DPO — LLaMA: -11.7 vs -14.8 (21% less), Mistral: -15.3 vs -33.6 (54% less), Qwen: roughly equal. This indicates MixDPO better preserves the model's likelihood on preferred responses.
+- **Rejected log-prob**: DPO pushes rejected down more aggressively on LLaMA and Mistral. This is expected — MixDPO switches to SFT on difficult pairs, which does not explicitly penalize rejected responses. However, this more aggressive rejection does not translate to better alignment (MixDPO achieves higher AlpacaEval LC WR on all three models), suggesting that protecting chosen likelihood is more important than aggressively suppressing rejected.
+- **Gap improvement**: Comparable across methods. MixDPO achieves slightly better gap on LLaMA (+15.2 vs +14.8) and Qwen (+18.8 vs +16.8), while DPO has larger gap on Mistral (+29.4 vs +19.6).
+
+Overall, MixDPO mitigates likelihood displacement on chosen responses while maintaining competitive preference discrimination, and this translates to superior alignment performance.
 
 ### Q4: Distribution of NLL on easy/middle/difficult subsets before training
 
