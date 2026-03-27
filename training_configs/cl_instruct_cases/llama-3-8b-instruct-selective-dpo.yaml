@@ -26,7 +26,7 @@ dataset_mixer:
   # /home/jlpang/QualityDPO/datasets/ultrafeedback: 1.0
   # argilla/ultrafeedback-binarized-preferences-cleaned: 0.01
   # jlpang888/ultrafeedback_sorted_llama_learning_order: 0.5
-  jlpang888/llama3-ultrafeedback-armorm_sorted_dpo_loss: 0.5 
+  jlpang888/llama3-ultrafeedback-armorm_sorted_dpo_loss: 0.5
   # /home/azureuser/cloudfiles/code/Users/jinlong.pang/QualityDPO/datasets/llama3-ultrafeedback-armorm_sorted_dpo_loss: 0.01
 
 dataset_splits:

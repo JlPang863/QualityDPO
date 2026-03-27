@@ -14,12 +14,13 @@
 
 ## AlpacaEval Evaluation (8 models)
 
-- [ ] beta-dpo
-- [ ] dpo-beta005
-- [ ] dpo-beta01
-- [ ] mixdpo-beta005
-- [ ] mixdpo-beta01
-- [ ] mixdpo-sorted-chosen-score
+- [x] beta-dpo ✅
+- [x] dpo-beta005 ✅
+- [x] dpo-beta01 ✅
+- [x] mixdpo-beta005 ✅
+- [ ] mixdpo-beta01 ⚠️ incomplete (354/805), needs rerun
+- [ ] mixdpo-sorted-chosen-score (needs rerun with noisy-tolerant-4-6-flag)
+- [ ] mixdpo-sorted-rejected-score (new)
 - [x] sft-rejected (new version) ✅
 - [x] sft-rejected-and-chosen ✅
 
@@ -35,16 +36,15 @@
 
 ## Fill Results into Rebuttal (after AlpacaEval)
 
-- [ ] Z34t W2: β-DPO baseline results
-- [ ] Z34t W3: β sweep table (DPO vs MixDPO at β=0.01/0.05/0.1)
-- [ ] Tgvs Q2: mixdpo-sorted-chosen-score results
+- [x] Z34t W2: β-DPO baseline results ✅
+- [x] Z34t W3: β sweep table ✅ (mixdpo-beta01 pending rerun)
+- [ ] Tgvs Q2: mixdpo-sorted-chosen-score + sorted-rejected-score results
 - [x] BC6i Q4: SFT on chosen/rejected/both comparison (fair, from same checkpoint) ✅
 
 ## Still TODO
 
 - [x] **Qwen2.5-7B Arena-Hard** (Z34t Q6) ✅
-- [ ] **Likelihood displacement with denser eval** — redraw with dpo-beta01/mixdpo-beta01 wandb data (~9 eval points)
-- [ ] **Update Q3 likelihood displacement table** — use rerun (eval_steps=40) wandb data to replace current 4-point data
+- [ ] **Update Q3 with compute_eval_logps.py results** — add Mistral/Qwen data to displacement table ⚠️ current results have issues, needs rerun
 - [x] **Binary-label experiment** (Z34t Q7) — addressed with SimPO/PairRM reward margin results (Table 3)
 
 ## Paper Text Updates ✅ ALL DONE

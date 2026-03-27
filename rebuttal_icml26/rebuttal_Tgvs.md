@@ -24,17 +24,20 @@ Importantly, the **relative trends are consistent** with SimPO. As we discuss in
 
 **This baseline is already in our paper.** Table 9 (Appendix B.3) includes **"DPO+NLL"** (Pang et al., 2024b, *Iterative Reasoning Preference Optimization*), which adds a negative log-likelihood (SFT) loss term to DPO loss for **all** samples, without difficulty-based routing. This is exactly the "DPO+SFT" baseline the reviewer asks about.
 
-Results:
-| Method | LC Win Rate (%) |
-|--------|----------------|
-| DPO+NLL (DPO+SFT on all data) | 4.25 |
-| MixDPO | **14.42** |
+Results (from Table 9, LLaMA-3-8B on UltraFeedback):
 
-MixDPO outperforms DPO+NLL by a large margin (14.42% vs 4.25%), demonstrating that **difficulty-aware routing is the key**, not merely combining DPO and SFT losses.
+| Method | LC Win Rate (%) | Win Rate (%) |
+|--------|----------------|-------------|
+| Base SFT | 3.73 | 10.19 |
+| Vanilla DPO | 9.37 | 16.77 |
+| DPO+NLL (DPO+SFT on all data) | 4.25 | 8.45 |
+| MixDPO (Ours) | 14.42 | 36.65 |
+
+MixDPO outperforms DPO+NLL by a large margin (14.42% vs 4.25% LC WR), and also significantly outperforms vanilla DPO (9.37%). This demonstrates that **difficulty-aware routing is the key**, not merely combining DPO and SFT losses — applying SFT to all data (DPO+NLL) actually hurts performance compared to vanilla DPO.
 
 ### W4: Qwen-2.5-7B experiment placement in ablations
 
-Thank you for this presentation-related comment. The Qwen-2.5-7B experiment is intended as a **generalization result on an additional base model**, rather than as a standard component ablation. Our main benchmark table (Table 1) focuses on two representative base models with a broader set of baselines, while Table 2 is used to test whether the method also transfers to a third model family (Qwen-2.5-7B) and to an additional preference dataset (Argilla-7k). This is why the Qwen experiment currently appears in Section 6.1 together with the dataset-generalization result. We agree, however, that the current organization under the broader "ablation" section can make this less clear. We will revise the presentation to better distinguish **generalization experiments** from component ablations, so that the role of the Qwen-2.5-7B result is more immediately clear to the reader.
+We agree that the placement is somewhat confusing. The Qwen-2.5-7B experiment is intended as a **generalization result** (testing whether MixDPO transfers to a third model family and an additional dataset), not a component ablation. We will adjust the presentation in the revised version to better distinguish generalization experiments from component ablations.
 
 ---
 
@@ -46,18 +49,20 @@ Yes — see W3 above. DPO+NLL in Table 9 is exactly this baseline, and MixDPO si
 
 ### Q2: What if pairs were sorted by chosen score instead of margin? Is SFT benefiting from ignoring high-scoring rejected responses?
 
-This is an insightful question. We have conducted an additional experiment: **MixDPO with data sorted by chosen score** (descending, high-quality chosen first) instead of by margin.
+This is an insightful question. To disentangle the source of MixDPO's improvement, we conduct three controlled experiments using the same MixDPO framework (DPO on first 53,748 pairs, SFT on last 7,387 pairs), varying only the **sorting criterion** that determines which pairs end up in the SFT stage:
 
-> **TODO: Add results from `mixdpo-sorted-chosen-score` experiment.**
+| Sorting Criterion | What the last 7,387 pairs are | Hypothesis tested |
+|-------------------|-------------------------------|-------------------|
+| Margin (original MixDPO) | Low margin (ambiguous) pairs | Margin-based difficulty is the key signal |
+| Chosen score | Low chosen-score pairs | SFT benefits from chosen quality, not margin |
+| Rejected score | Low rejected-score pairs | SFT benefits from ignoring high-scoring negatives |
 
-This experiment disentangles two hypotheses:
-- **(A) Margin hypothesis**: MixDPO works because margin-based difficulty correctly identifies pairs where DPO loss is unreliable.
-- **(B) Chosen-quality hypothesis**: MixDPO works simply because high-scoring chosen responses are easy to learn from, regardless of the rejected response.
+> **TODO: Add AlpacaEval results for sorted-chosen-score and sorted-rejected-score.**
 
-If margin sorting outperforms chosen-score sorting, it confirms hypothesis (A) — the margin signal provides information beyond chosen response quality alone.
+If margin sorting outperforms the other two, it confirms that **the margin signal provides information beyond chosen or rejected quality alone** — the pairwise relationship matters.
 
-Additionally, we note that the SFT phase in MixDPO is applied to **chosen responses from difficult pairs** (low margin). These chosen responses have similar quality to the rejected responses (by definition of low margin), so the SFT phase is not simply "ignoring high-scoring negatives" — it is extracting useful supervision from ambiguous pairs where the preference signal is too noisy for contrastive learning.
+Additionally, we note that in low-margin pairs, chosen and rejected responses have similar quality by definition. The SFT phase is therefore not simply "ignoring high-scoring negatives" — it is extracting useful supervision from pairs where the preference signal is too noisy for contrastive learning.
 
 ### Q3: Were learning rates tuned in Section 4.1?
 
-In Section 4.1, we use the **same learning rate** (from the Alignment Handbook default) across all difficulty buckets to isolate the effect of data difficulty from hyperparameter tuning. We acknowledge that different buckets may benefit from different learning rates. However, our main finding — that difficult pairs harm DPO but help SFT — holds across the learning rate sweep we report in the appendix (Table 7, with lr ∈ {5e-7, 8e-7, 1e-6}), where MixDPO consistently outperforms baselines at each learning rate.
+In Section 4.1, we intentionally use the **same learning rate** (Alignment Handbook default) across all difficulty buckets to isolate the effect of data difficulty from hyperparameter tuning. We did not tune lr per bucket — this is consistent with standard practice in data-difficulty analysis, where the goal is to compare subsets under controlled conditions rather than to find the best configuration for each subset. We acknowledge that per-bucket lr tuning could potentially narrow the gap between easy and difficult subsets. We will add this as a caveat in the revision.

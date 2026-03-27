@@ -44,8 +44,24 @@ LOSS_TYPES=(
     # dpo-sorted-llama-full-replicate1 ###change beta from 0.1 to 0.01
     # ours4-6-sorted-score-diff-full-threshold1
     # ours4-6-sorted-score-diff-full-threshold2
-    dpop-full
-    ) 
+    # dpop-full
+    # ours4-6-sorted-score-diff-full-rebuttal-difficult-sft-rejected
+    # ours4-6-sorted-score-diff-full-rebuttal-difficult-sft-rejected-and-chosen
+    # --- Z34t: β-DPO baseline (Wu et al., NeurIPS 2024) ---
+    beta-dpo
+    # --- Z34t: β sweep for DPO and MixDPO (β=0.05, 0.1) ---
+    dpo-beta005
+    dpo-beta01          # also for likelihood displacement (eval_steps=40)
+    mixdpo-beta005
+    mixdpo-beta01       # also for likelihood displacement (eval_steps=40)
+    # --- Tgvs Q2: sort by chosen score instead of margin ---
+    mixdpo-sorted-chosen-score
+    # --- rerun MixDPO to save checkpoint-336 (eval_steps=40 for likelihood displacement) ---
+    ours4-6-sorted-score-diff-full-rerun
+    # --- BC6i Q4: SFT on rejected / both (resume from checkpoint-336) ---
+    ours4-6-sorted-score-diff-full-rebuttal-difficult-sft-rejected
+    ours4-6-sorted-score-diff-full-rebuttal-difficult-sft-rejected-and-chosen
+    )
 
 # base_model="mistral-7b"
 # LOSS_TYPES=(

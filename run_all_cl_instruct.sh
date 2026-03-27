@@ -10,8 +10,8 @@ num_gpus=8
 # base_model="llama-3-8b"
 
 BASE_MODELS=(
-    # llama-3-8b
-    mistral-7b
+    llama-3-8b
+    # mistral-7b
 )
 
 LOSS_TYPES=(
@@ -26,6 +26,7 @@ LOSS_TYPES=(
     # dpo-nll
     dpo-ches-0.5
     dpo-ches-0.9
+    selective-dpo-test
     ) 
 
 model_tag=base 
