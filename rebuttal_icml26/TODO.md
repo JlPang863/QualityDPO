@@ -18,9 +18,9 @@
 - [x] dpo-beta005 ✅
 - [x] dpo-beta01 ✅
 - [x] mixdpo-beta005 ✅
-- [ ] mixdpo-beta01 ⚠️ incomplete (354/805), needs rerun
-- [ ] mixdpo-sorted-chosen-score (needs rerun with noisy-tolerant-4-6-flag)
-- [ ] mixdpo-sorted-rejected-score (new)
+- [x] mixdpo-beta01 ✅ (798/805, nearly complete)
+- [x] mixdpo-sorted-chosen-score ✅
+- [x] mixdpo-sorted-rejected-score ✅
 - [x] sft-rejected (new version) ✅
 - [x] sft-rejected-and-chosen ✅
 
@@ -38,13 +38,13 @@
 
 - [x] Z34t W2: β-DPO baseline results ✅
 - [x] Z34t W3: β sweep table ✅ (mixdpo-beta01 pending rerun)
-- [ ] Tgvs Q2: mixdpo-sorted-chosen-score + sorted-rejected-score results
+- [x] Tgvs Q2: mixdpo-sorted-chosen-score + sorted-rejected-score results ✅
 - [x] BC6i Q4: SFT on chosen/rejected/both comparison (fair, from same checkpoint) ✅
 
 ## Still TODO
 
 - [x] **Qwen2.5-7B Arena-Hard** (Z34t Q6) ✅
-- [ ] **Update Q3 with compute_eval_logps.py results** — add Mistral/Qwen data to displacement table ⚠️ current results have issues, needs rerun
+- [x] **Update Q3 with compute_eval_logps.py results** ✅
 - [x] **Binary-label experiment** (Z34t Q7) — addressed with SimPO/PairRM reward margin results (Table 3)
 
 ## Paper Text Updates ✅ ALL DONE

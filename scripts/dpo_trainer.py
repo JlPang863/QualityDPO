@@ -1573,6 +1573,17 @@ class DPOTrainer(Trainer):
             losses = sel_labels * sft_loss + (1 - sel_labels) * dpo_losses
 
 
+        elif self.loss_type == "noisy-tolerant-4-6-flag": ## use is_difficult flag from dataset
+            sel_labels = torch.Tensor(batch['is_difficult']).to(logits.device).int() if 'is_difficult' in batch.keys() else torch.zeros_like(logits).int().to(logits.device)
+
+            sft_loss = -mean_chosen_logps
+            dpo_losses = (
+                -F.logsigmoid(self.beta * logits) * (1 - self.label_smoothing)
+                - F.logsigmoid(-self.beta * logits) * self.label_smoothing
+            )
+
+            losses = sel_labels * sft_loss + (1 - sel_labels) * dpo_losses
+
         elif self.loss_type == "noisy-tolerant-4-6-threshold1": ## ours
             ### TODO: need to finished; sample-level soft label
             rating_score_threshold = 1

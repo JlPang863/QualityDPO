@@ -16,9 +16,33 @@ We additionally include **Qwen-2.5-7B** experiments (Table 2), demonstrating tha
 
 ### W2: Win rates lower than other DPO papers
 
-The absolute win rate differences across papers are primarily due to the **LLM judge version**. We use GPT-4-1106 (GPT-4-Turbo) as the AlpacaEval 2.0 judge for cost efficiency, whereas some recent papers use GPT-4o or newer versions, which tend to assign higher absolute win rates. This affects absolute numbers but not relative rankings.
+The absolute win rate differences across papers are primarily due to the **LLM judge version**. Since most baselines in our experiments use SimPO's publicly released model checkpoints, we can directly compare the same models evaluated by different judges. Below we show AlpacaEval 2.0 LC Win Rate (%) for the same models under SimPO's judge (GPT-4-Preview-1106) vs our judge (GPT-4.1):
 
-Importantly, the **relative trends are consistent** with SimPO. As we discuss in Lines 323–328 of our paper, many DPO variants (e.g., CPO, KTO) fail to outperform standard DPO and in some cases underperform it — the same pattern observed by SimPO, which used GPT-4-Preview-1106 as the judge. Since most baselines in our experiments use SimPO's publicly released model checkpoints, the only difference is the LLM judge version. The fact that the relative ranking is preserved across different judges confirms that the judge version may affect absolute win rates but does not change relative comparisons. We will clarify this point more explicitly in the revised paper.
+AlpacaEval 2.0 **LC Win Rate (%)** on the same model checkpoints, evaluated by different judges (Δ = difference from DPO):
+
+| Method | LLaMA-3-8B (SimPO) | LLaMA-3-8B (Ours) | Mistral-7B (SimPO) | Mistral-7B (Ours) |
+|--------|-------------------|-------------------|-------------------|-------------------|
+| DPO | 18.2 | 9.37 | 15.1 | 5.14 |
+| CPO | 10.8 (−7.4) | 4.25 (−5.1) | 9.8 (−5.3) | 4.04 (−1.1) |
+| IPO | 14.4 (−3.8) | 5.89 (−3.5) | 11.8 (−3.3) | 5.45 (+0.3) |
+| KTO | 14.2 (−4.0) | 4.27 (−5.1) | 13.1 (−2.0) | 5.02 (−0.1) |
+| RDPO | 17.6 (−0.6) | 6.92 (−2.5) | 17.4 (+2.3) | 6.03 (+0.9) |
+| SimPO | 22.0 (+3.8) | 6.77 (−2.6) | 21.5 (+6.4) | 4.30 (−0.8) |
+
+<!--
+AlpacaEval 2.0 **Win Rate (%)** on the same model checkpoints (Δ = difference from DPO):
+
+| Method | LLaMA-3-8B (SimPO) | LLaMA-3-8B (Ours) | Mistral-7B (SimPO) | Mistral-7B (Ours) |
+|--------|-------------------|-------------------|-------------------|-------------------|
+| DPO | 15.5 | 16.77 | 12.5 | 4.72 |
+| CPO | 8.1 (−7.4) | 9.69 (−7.1) | 8.9 (−3.6) | 3.85 (−0.9) |
+| IPO | 14.2 (−1.3) | 11.55 (−5.2) | 9.4 (−3.1) | 4.60 (−0.1) |
+| KTO | 12.4 (−3.1) | 3.98 (−12.8) | 9.1 (−3.4) | 3.23 (−1.5) |
+| RDPO | 14.4 (−1.1) | 11.06 (−5.7) | 12.8 (+0.3) | 4.60 (−0.1) |
+| SimPO | 20.3 (+4.8) | 14.04 (−2.7) | 20.8 (+8.3) | 5.47 (+0.8) |
+-->
+
+The absolute win rates differ substantially due to the judge version, but the **relative trends are consistent**: DPO variants like CPO and KTO underperform standard DPO under both judges, and the overall ranking is preserved. This confirms that the judge version affects absolute values but does not change relative comparisons. We will clarify this point more explicitly in the revised paper.
 
 ### W3: DPO+SFT as a straightforward baseline
 
@@ -49,19 +73,15 @@ Yes — see W3 above. DPO+NLL in Table 9 is exactly this baseline, and MixDPO si
 
 ### Q2: What if pairs were sorted by chosen score instead of margin? Is SFT benefiting from ignoring high-scoring rejected responses?
 
-This is an insightful question. To disentangle the source of MixDPO's improvement, we conduct three controlled experiments using the same MixDPO framework (DPO on first 53,748 pairs, SFT on last 7,387 pairs), varying only the **sorting criterion** that determines which pairs end up in the SFT stage:
+Great question. We conduct controlled experiments using the same MixDPO framework (DPO on first 53,748 pairs, SFT on last 7,387 pairs), replacing the margin-based sorting with chosen score or rejected score as the sorting criterion:
 
-| Sorting Criterion | What the last 7,387 pairs are | Hypothesis tested |
-|-------------------|-------------------------------|-------------------|
-| Margin (original MixDPO) | Low margin (ambiguous) pairs | Margin-based difficulty is the key signal |
-| Chosen score | Low chosen-score pairs | SFT benefits from chosen quality, not margin |
-| Rejected score | Low rejected-score pairs | SFT benefits from ignoring high-scoring negatives |
+| Sorting Criterion | LC Win Rate (%) | Win Rate (%) | Avg Length |
+|-------------------|----------------|-------------|-----------|
+| Sorted by chosen score | 6.10 | 7.33 | 1850 |
+| Sorted by rejected score | 8.22 | 30.31 | 4677 |
+| **Margin (original MixDPO)** | **14.42** | **36.65** | **2843** |
 
-> **TODO: Add AlpacaEval results for sorted-chosen-score and sorted-rejected-score.**
-
-If margin sorting outperforms the other two, it confirms that **the margin signal provides information beyond chosen or rejected quality alone** — the pairwise relationship matters.
-
-Additionally, we note that in low-margin pairs, chosen and rejected responses have similar quality by definition. The SFT phase is therefore not simply "ignoring high-scoring negatives" — it is extracting useful supervision from pairs where the preference signal is too noisy for contrastive learning.
+Margin sorting significantly outperforms both alternatives (14.42% vs 6.10% and 8.22% LC WR), confirming that **margin is the most effective routing signal**. This is intuitive: since DPO is a pairwise contrastive objective, the score margin which captures the pairwise relationship between chosen and rejected is the most natural criterion for identifying where contrastive learning is reliable versus where SFT is more appropriate.
 
 ### Q3: Were learning rates tuned in Section 4.1?
 

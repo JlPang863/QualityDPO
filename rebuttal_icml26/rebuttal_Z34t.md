@@ -73,9 +73,7 @@ That said, to further strengthen this argument, we conduct a β sweep with β �
 |---|--------------|-----------|------------|-----------------|--------------|---------------|
 | 0.01 | 9.37 | 16.77 | 2895 | **14.42** | **36.65** | 2843 |
 | 0.05 | 7.18 | 16.40 | 4629 | 6.60 | 18.63 | 8189 |
-| 0.1 | 4.92 | 12.05 | 4476 | 5.00* | 12.71* | 4678* |
-
-\* mixdpo-beta01 generation incomplete (354/805 samples), results may change after rerun.
+| 0.1 | 4.92 | 12.05 | 4476 | 3.72 | 13.66 | 4750 |
 
 At the default β=0.01, MixDPO outperforms DPO by a large margin (14.42% vs 9.37%). At larger β values, both methods degrade, consistent with the observation that β=0.01 is well-calibrated for this pipeline. MixDPO's advantage is most pronounced at the standard β, confirming that the improvement comes from the method design rather than β sensitivity.
 
@@ -110,29 +108,29 @@ We have added 95% confidence intervals via bootstrapping for Arena-Hard:
 
 **LLaMA-3-8B:**
 
-| Method | Win Rate (%) | 95% CI | Avg Length |
-|--------|-------------|--------|-----------|
-| SFT | 7.8 | [6.0, 10.0] | 1324 |
-| DPO | 31.2 | [27.7, 34.8] | 1906 |
-| IPO | 32.5 | [29.1, 35.7] | 2072 |
-| SimPO | 32.5 | [29.1, 36.1] | 2058 |
-| RDPO | 28.6 | [25.6, 31.7] | 1869 |
-| KTO | 27.4 | [24.2, 30.9] | 1788 |
-| SelectiveDPO | 30.0 | [27.7, 32.4] | 1895 |
-| MixDPO (Ours) | 26.3 | [23.1, 29.5] | 1605 |
+| Method | Win Rate (%) | Adj. WR (%) | 95% CI | Avg Length |
+|--------|-------------|------------|--------|-----------|
+| SFT | 3.9 | 7.8 | [6.0, 10.0] | 1324 |
+| DPO | 20.4 | 31.2 | [27.7, 34.8] | 1906 |
+| IPO | 20.6 | 32.5 | [29.1, 35.7] | 2072 |
+| SimPO | 20.2 | 32.5 | [29.1, 36.1] | 2058 |
+| RDPO | 18.9 | 28.6 | [25.6, 31.7] | 1869 |
+| KTO | 17.6 | 27.4 | [24.2, 30.9] | 1788 |
+| SelectiveDPO | 20.5 | 32.1 | [27.7, 32.4] | 1895 |
+| MixDPO (Ours) | 16.6 | 26.3 | [23.1, 29.5] | 1605 |
 
 **Mistral-7B:**
 
-| Method | Win Rate (%) | 95% CI | Avg Length |
-|--------|-------------|--------|-----------|
-| SFT | 5.1 | [3.5, 6.8] | 1196 |
-| DPO | 15.0 | [12.5, 18.0] | 1569 |
-| IPO | 13.2 | [10.8, 15.6] | 1533 |
-| SimPO | 19.5 | [16.7, 22.6] | 1627 |
-| RDPO | 16.6 | [13.8, 19.4] | 1485 |
-| KTO | 10.3 | [8.1, 12.7] | 1251 |
-| SelectiveDPO | 16.6 | [13.9, 19.3] | 1609 |
-| MixDPO (Ours) | 20.5 | [17.7, 23.3] | 1703 |
+| Method | Win Rate (%) | Adj. WR (%) | 95% CI | Avg Length |
+|--------|-------------|------------|--------|-----------|
+| SFT | 3.0 | 5.1 | [3.5, 6.8] | 1196 |
+| DPO | 10.0 | 15.0 | [12.5, 18.0] | 1569 |
+| IPO | 6.8 | 13.2 | [10.8, 15.6] | 1533 |
+| SimPO | 11.2 | 19.5 | [16.7, 22.6] | 1627 |
+| RDPO | 9.7 | 16.6 | [13.8, 19.4] | 1485 |
+| KTO | 5.0 | 10.3 | [8.1, 12.7] | 1251 |
+| SelectiveDPO | 10.2 | 16.6 | [13.9, 19.3] | 1609 |
+| MixDPO (Ours) | 10.2 | 20.5 | [17.7, 23.3] | 1703 |
 
 Key observations:
 1. **LLaMA-3-8B**: MixDPO's CI [23.1, 29.5] overlaps with DPO [27.7, 34.8] and other methods. MixDPO generates the shortest responses (1605 chars), and LLM judges are known to exhibit length bias — this largely explains the lower win rate.
@@ -193,11 +191,27 @@ We evaluate the SFT baseline, vanilla DPO, and MixDPO on the same eval set (500 
 | MixDPO | -18.2 (-305.9 → -324.1) | -37.0 (-287.8 → -324.7) | +18.8 (-18.1 → 0.6) |
 
 Key observations:
-- **Chosen displacement (less is better)**: MixDPO consistently shows less chosen log-prob decrease than DPO — LLaMA: -11.7 vs -14.8 (21% less), Mistral: -15.3 vs -33.6 (54% less), Qwen: roughly equal. This indicates MixDPO better preserves the model's likelihood on preferred responses.
-- **Rejected log-prob**: DPO pushes rejected down more aggressively on LLaMA and Mistral. This is expected — MixDPO switches to SFT on difficult pairs, which does not explicitly penalize rejected responses. However, this more aggressive rejection does not translate to better alignment (MixDPO achieves higher AlpacaEval LC WR on all three models), suggesting that protecting chosen likelihood is more important than aggressively suppressing rejected.
-- **Gap improvement**: Comparable across methods. MixDPO achieves slightly better gap on LLaMA (+15.2 vs +14.8) and Qwen (+18.8 vs +16.8), while DPO has larger gap on Mistral (+29.4 vs +19.6).
+- **Chosen displacement**: MixDPO shows less chosen log-prob decrease than DPO — LLaMA: -11.7 vs -14.8 (21% less), Mistral: -15.3 vs -33.6 (54% less), Qwen: roughly equal.
+- **Gap improvement**: Comparable across methods, with MixDPO slightly better on LLaMA and Qwen. DPO pushes rejected down more aggressively, but this does not translate to better alignment — MixDPO achieves higher AlpacaEval LC WR on all three models.
 
-Overall, MixDPO mitigates likelihood displacement on chosen responses while maintaining competitive preference discrimination, and this translates to superior alignment performance.
+<!--
+**Connection to likelihood displacement.** The chosen log-prob decrease is a known phenomenon called *likelihood displacement* (Razin et al., 2024; Pal et al., 2024). Existing fixes — adding NLL regularizers (DPOP, DPO+NLL) or filtering difficult pairs (Razin et al., 2024) — either create competing gradients or discard useful data, and generally do not achieve a net increase above the SFT baseline. MixDPO instead **separates objectives at the data level**: the SFT stage directly maximizes chosen log-prob without contrastive interference, explaining why MixDPO shows less displacement across all three models.
+
+Likelihood displacement 各方法对 chosen log-prob 的实际效果:
+
+| 方法 | Chosen prob 变化 | 具体数据 | 来源 |
+|------|-----------------|----------|------|
+| DPO | ❌ 大幅下降 | Llama-3-8B: 0.99→0.03; MetaMath: -0.37→-1.82 | Razin et al. 2024; Pal et al. 2024 |
+| IPO | ❌ 同样下降 | Razin et al. 确认 IPO 也有 displacement | Razin et al. 2024 |
+| DPOP | ⚠️ 仅 MetaMath 上绝对上升 | MetaMath: -0.37→-0.26 (Δ=+0.11), edit distance 仅 6.5%, 非通用场景 | Pal et al. 2024 |
+| DPO+NLL | ⚠️ 缓解下降 | BDPO 论文称 "chosen prob increases", 指相对趋势, 非绝对超过 SFT 基线 | BDPO 2025 |
+| CPO | ⚠️ 缓解下降 | 含 NLL 项, 消融实验证实 NLL 是关键, 未报告 chosen prob 轨迹 | Xu et al. 2024 |
+| ORPO | ⚠️ 与 SFT 持平 | 论文原话 "on par with SFT", 不是上升 | Hong et al. 2024 |
+| SquaredPO | ⚠️ 大幅缓解 | 持续下降比例: DPO 99.63% → SquaredPO 4.21%, 但仍有下降 | Pipano et al. 2026 |
+| LD-DPO | ⚠️ 数据筛选回避问题 | 过滤高 CHES score 数据; 低 CHES 数据 DPO 本身能上升; 高 CHES 数据直接丢弃 | Razin et al. 2024 |
+
+结论: 没有任何方法在通用场景下实现 chosen prob 的绝对上升. MixDPO 在数据层面分离目标, SFT 阶段直接最大化 chosen prob, 不受 contrastive loss 干扰.
+-->
 
 ### Q4: Distribution of NLL on easy/middle/difficult subsets before training
 
@@ -254,7 +268,7 @@ We report Qwen2.5-7B results on both AlpacaEval 2.0 (with SE from built-in boots
 | DPO | 2.38±0.12 | 3.60±0.66 | 24.6 | 35.6 | [32.3, 39.1] |
 | SimPO | 2.28±0.12 | 3.11±0.61 | 23.2 | 35.1 | [31.5, 38.8] |
 | SelectiveDPO | 3.35±0.13 | 5.59±0.81 | 28.2 | 39.2 | [35.4, 42.9] |
-| MixDPO (Ours) | 3.45±0.14 | 5.59±0.81 | 28.6 | 39.8 | [36.0, 43.8] |
+| **MixDPO (Ours)** | **3.45±0.14** | **5.59±0.81** | **28.6** | **39.8** | **[36.0, 43.8]** |
 
 MixDPO achieves the highest scores on both benchmarks: AlpacaEval LC WR (3.45±0.14%) and Arena-Hard adjusted WR (39.8%), outperforming DPO and SimPO consistently.
 

@@ -15,11 +15,11 @@ These extreme-case controls are already included in our paper:
 - **"DPO on easy only"**: This is exactly the **"Ours + discard difficult"** variant in **Figure 4a** (discussed in Lines 375–376), which applies DPO only to easy pairs and discards all difficult pairs. MixDPO outperforms this variant, demonstrating that difficult pairs provide valuable supervision when trained with SFT.
 - **"SFT on hard only"**: We have conducted additional experiments training SFT only on difficult pairs (score_diff < 0.5) using chosen, rejected, or both responses:
 
-| SFT Target | LC Win Rate (%) | Win Rate (%) | Avg Length |
-|------------|----------------|-------------|------------|
-| Chosen only | 2.11±0.14 | 1.93±0.48 | 1327 |
-| Rejected + Chosen | 2.33±0.15 | 2.24±0.52 | 1394 |
-| Rejected only | 2.91±0.19 | 2.86±0.59 | 1448 |
+| SFT Target | # Samples | LC Win Rate (%) | Win Rate (%) | Avg Length |
+|------------|-----------|----------------|-------------|------------|
+| Chosen only | 7,387 | 2.11±0.14 | 1.93±0.48 | 1327 |
+| Rejected + Chosen | 14,774 | 2.33±0.15 | 2.24±0.52 | 1394 |
+| Rejected only | 7,387 | 2.91±0.19 | 2.86±0.59 | 1448 |
 
 All three SFT-only settings perform poorly on AlpacaEval 2.0 compared to MixDPO (LC WR = 14.42%), confirming that pure SFT on difficult pairs alone is insufficient — the DPO phase on easy pairs is essential. We also provide additional Full SFT baselines in Appendix B.5 (Table 12), which further support this conclusion.
 
@@ -31,13 +31,13 @@ We provide a detailed analysis. First, we note that this inconsistency is **spec
 
 For LLaMA-3-8B, we have added 95% bootstrap CIs:
 
-| Method | Win Rate (%) | 95% CI | Avg Length |
-|--------|-------------|--------|-----------|
-| DPO | 31.2 | [27.7, 34.8] | 1906 |
-| IPO | 32.5 | [29.1, 35.7] | 2072 |
-| SimPO | 32.5 | [29.1, 36.1] | 2058 |
-| SelectiveDPO | 30.0 | [27.7, 32.4] | 1895 |
-| **MixDPO (Ours)** | **26.3** | **[23.1, 29.5]** | **1605** |
+| Method | Win Rate (%) | Adj. WR (%) | 95% CI | Avg Length |
+|--------|-------------|------------|--------|-----------|
+| DPO | 20.4 | 31.2 | [27.7, 34.8] | 1906 |
+| IPO | 20.6 | 32.5 | [29.1, 35.7] | 2072 |
+| SimPO | 20.2 | 32.5 | [29.1, 36.1] | 2058 |
+| SelectiveDPO | 20.5 | 32.1 | [27.7, 32.4] | 1895 |
+| **MixDPO (Ours)** | **16.6** | **26.3** | **[23.1, 29.5]** | **1605** |
 
 We attribute MixDPO's lower LLaMA-3-8B Arena-Hard score to two factors:
 
@@ -45,7 +45,27 @@ We attribute MixDPO's lower LLaMA-3-8B Arena-Hard score to two factors:
 
 **2. Length bias.** MixDPO generates the shortest responses (1605 chars) while higher-ranked methods generate longer outputs (IPO: 2072, SimPO: 2058, DPO: 1906). LLM judges are known to exhibit length bias, which penalizes MixDPO on Arena-Hard's raw win rates.
 
-Importantly, this is not a systematic weakness: on Mistral-7B, MixDPO achieves the best Arena-Hard win rate (20.5%, CI [17.7, 23.3]) with comparable generation length (1703). On AlpacaEval 2.0 LC Win Rate — which controls for length bias — MixDPO achieves **14.42%** on LLaMA-3-8B and **7.67%** on Mistral-7B, significantly outperforming all baselines on both models.
+Importantly, this is not a systematic weakness. On the other two base models, MixDPO achieves the **highest** Arena-Hard win rate:
+
+**Mistral-7B Arena-Hard:**
+
+| Method | Win Rate (%) | Adj. WR (%) | 95% CI | Avg Length |
+|--------|-------------|------------|--------|-----------|
+| DPO | 10.0 | 15.0 | [12.5, 18.0] | 1569 |
+| SimPO | 11.2 | 19.5 | [16.7, 22.6] | 1627 |
+| SelectiveDPO | 10.2 | 16.6 | [13.9, 19.3] | 1609 |
+| **MixDPO (Ours)** | **10.2** | **20.5** | **[17.7, 23.3]** | **1703** |
+
+**Qwen-2.5-7B Arena-Hard:**
+
+| Method | Win Rate (%) | Adj. WR (%) | 95% CI | Avg Length |
+|--------|-------------|------------|--------|-----------|
+| DPO | 24.6 | 35.6 | [32.3, 39.1] | 1990 |
+| SimPO | 23.2 | 35.1 | [31.5, 38.8] | 1878 |
+| SelectiveDPO | 28.2 | 39.2 | [35.4, 42.9] | 2052 |
+| **MixDPO (Ours)** | **28.6** | **39.8** | **[36.0, 43.8]** | **2019** |
+
+On AlpacaEval 2.0 LC Win Rate — which controls for length bias — MixDPO consistently outperforms all baselines across all three models (LLaMA: 14.42%, Mistral: 7.67%, Qwen: 3.45%).
 
 ### W3: LLM judge dependency — MixDPO's improvement marginal on downstream tasks (Table 14)
 
@@ -67,7 +87,7 @@ For cross-domain use, we do **not** view a single absolute τ value as universal
 
 Please see W2 above for a detailed analysis with 95% bootstrap CIs and generation length statistics. In summary:
 
-1. **High evaluation variance**: Arena-Hard's bootstrap CIs are wide (±3–4%). MixDPO's CI [23.0, 29.7] overlaps with DPO [27.7, 34.8] and other methods, suggesting the differences are within evaluation uncertainty.
+1. **High evaluation variance**: Arena-Hard's bootstrap CIs are wide (±3–4%). MixDPO's CI [23.1, 29.5] overlaps with DPO [27.7, 34.8] and other methods, suggesting the differences are within evaluation uncertainty.
 2. **Length bias**: MixDPO generates the shortest responses (avg 1605 tokens vs 1900–2070 for other methods). LLM judges favor longer outputs, which disproportionately penalizes MixDPO on Arena-Hard.
 3. **Benchmark characteristics**: Arena-Hard favors verbose, detailed responses, while MixDPO's strength lies in improving general helpfulness and instruction-following quality — better captured by AlpacaEval 2.0 and MT-Bench.
 

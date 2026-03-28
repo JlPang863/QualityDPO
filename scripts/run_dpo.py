@@ -192,7 +192,7 @@ def main():
         splits=data_args.dataset_splits,
         configs=data_args.dataset_configs,
         # columns_to_keep=["messages", "chosen", "rejected", "prompt", "completion", "label"],
-        columns_to_keep=["messages", "chosen", "rejected", "prompt", "completion", "score_chosen", "score_rejected", "label", "chosen_docta_score", "rejected_docta_score", "reward_score_chosen", "reward_score_rejected"],
+        columns_to_keep=["messages", "chosen", "rejected", "prompt", "completion", "score_chosen", "score_rejected", "label", "chosen_docta_score", "rejected_docta_score", "reward_score_chosen", "reward_score_rejected", "is_difficult"],
         # columns_to_keep=["messages", "chosen", "rejected", "prompt", "completion", "label", "chosen_docta_score", "rejected_docta_score"],
         shuffle=False,
         # seed=training_args.seed,
