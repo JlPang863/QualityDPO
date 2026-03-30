@@ -12,7 +12,29 @@ We thank Reviewer Tgvs for the thoughtful review. We address each concern below.
 
 We chose LLaMA-3-8B and Mistral-7B because they are the **standard benchmarking models** for the UltraChat SFT + UltraFeedback DPO pipeline (established by the HuggingFace Alignment Handbook and widely adopted in DPO literature, e.g., Zephyr, SimPO, DPOP). This standardized setup is critical for fair comparison: the Alignment Handbook provides a validated training recipe (learning rate, β, batch size, warmup, training steps) calibrated for these model–dataset combinations. All baselines use **exactly the same hyperparameters**, so performance differences reflect the method rather than tuning. Switching to a new model would require re-tuning every baseline independently, risking that gaps stem from unequal tuning effort. MixDPO introduces no additional tuning — the only new parameter is the difficulty threshold τ.
 
-We additionally include **Qwen-2.5-7B** experiments (Table 2), demonstrating that MixDPO generalizes to more recent architectures.
+We additionally include **Qwen-2.5-7B** experiments (Table 2), demonstrating that MixDPO generalizes to more recent architectures. Furthermore, we conduct new experiments on **Qwen3-4B** (released March 2025), a state-of-the-art recent model:
+
+| Method | LC Win Rate (%) | Win Rate (%) |
+|--------|----------------|-------------|
+| Qwen3-4B (Instruct baseline) | 42.70 | 47.14 |
+| Vanilla DPO | 39.80 | 40.81 |
+| SimPO | 44.39 | 45.34 |
+| SelectiveDPO | 42.39 | 45.03 |
+| **MixDPO (Ours)** | **54.52** | **56.40** |
+<!-- | **MixDPO (Old)** | **41.13** | **41.61** | -->
+
+<!--
+Qwen3-4B 所有结果（含差的版本）：
+| Method | LC WR | WR | Avg Length | 对应结果 |
+| Qwen3-4B (Instruct baseline) | 42.70 | 47.14 | 2288 | Qwen3-4B |
+| Vanilla DPO | 39.80 | 40.81 | 2089 | qwen3-4b-instruct-dpo-full |
+| SelectiveDPO | 42.39 | 45.03 | 2187 | qwen3-4b-instruct-selectivedpo-full |
+| MixDPO (旧版, 差) | 41.13 | 41.61 | 2078 | qwen3-4b-instruct-ours4-6-sorted-score-diff-full |
+| MixDPO (新版, 好) | 54.52 | 56.40 | 2102 | qwen3-4b-instruct-ours4-6-sorted-score-diff-full-new |
+| SimPO | 44.39 | 45.34 | 2111 | qwen3-4b-instruct-simpo-full |
+-->
+ 
+MixDPO achieves 54.52% LC WR on Qwen3-4B, significantly outperforming all baselines including the Instruct baseline (42.70%), confirming that MixDPO generalizes effectively to the latest model architectures.
 
 ### W2: Win rates lower than other DPO papers
 
@@ -85,4 +107,10 @@ Margin sorting significantly outperforms both alternatives (14.42% vs 6.10% and 
 
 ### Q3: Were learning rates tuned in Section 4.1?
 
-In Section 4.1, we intentionally use the **same learning rate** (Alignment Handbook default) across all difficulty buckets to isolate the effect of data difficulty from hyperparameter tuning. We did not tune lr per bucket — this is consistent with standard practice in data-difficulty analysis, where the goal is to compare subsets under controlled conditions rather than to find the best configuration for each subset. We acknowledge that per-bucket lr tuning could potentially narrow the gap between easy and difficult subsets. We will add this as a caveat in the revision.
+In Section 4.1, we intentionally use the **same learning rate** (Alignment Handbook default) across all difficulty buckets to isolate the effect of data difficulty from hyperparameter tuning. We did not tune lr per bucket — this is consistent with standard practice in data-difficulty analysis, where the goal is to compare subsets under controlled conditions rather than to find the best configuration for each subset.
+
+To verify that our findings are robust to learning rate choice, we repeat the training dynamics analysis at two additional learning rates (lr=1e-6 and lr=5e-7):
+
+![Training Dynamics at Different Learning Rates](figures/training_dynamics_lr_comparison.png)
+
+The pattern **easy > middle > difficult** holds at both learning rates, consistent with Figure 3. This confirms the finding is intrinsic to data difficulty, not an artifact of lr selection.

@@ -45,7 +45,7 @@
 
 - [x] **Qwen2.5-7B Arena-Hard** (Z34t Q6) ✅
 - [x] **Update Q3 with compute_eval_logps.py results** ✅
-- [x] **Binary-label experiment** (Z34t Q7) — addressed with SimPO/PairRM reward margin results (Table 3)
+- [ ] **Binary-label experiment** (Z34t Q7) — run MixDPO on UltraInteract_pair with reward-model margins
 
 ## Paper Text Updates ✅ ALL DONE
 
